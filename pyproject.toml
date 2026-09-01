@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ip21-explorer"
+version = "0.1.0"
+description = "Fast trend viewer for IP21 process data"
+license = {text = "MIT"}
+classifiers = ["License :: OSI Approved :: MIT License"]
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+aspen = ["tagreader>=5"]
+dev = ["pytest", "httpx", "tagreader>=6"]
+
+[project.scripts]
+ip21-explorer = "ip21_explorer.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ip21_explorer = ["static/*", "static/vendor/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

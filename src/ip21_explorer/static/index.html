@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IP21 Explorer</title>
+  <link rel="stylesheet" href="vendor/uplot.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="topbar">
+    <div id="tabbar">
+      <div id="tabs"></div>
+      <button id="tab-overflow" class="hidden" title="Tabs that are out of view"></button>
+      <button id="add-tab" title="New plot tab">+</button>
+      <label id="link-ranges" title="Use a common time range for all tabs">
+        <input type="checkbox" id="link-ranges-cb"> Link time
+      </label>
+      <span class="spacer"></span>
+      <button id="save-plot" title="Save this plot configuration">Save</button>
+      <button id="open-plot" title="Open a saved plot">Open</button>
+      <button id="share-plot" title="Copy a link that recreates this plot">Share</button>
+    </div>
+
+    <div id="toolbar">
+      <div id="search-box">
+        <input id="tag-search" type="text" placeholder="Search tag or description…" autocomplete="off" spellcheck="false">
+        <div id="search-results" class="dropdown hidden"></div>
+      </div>
+
+      <div id="presets" class="btn-group"></div>
+
+      <div id="custom-range">
+        <input type="datetime-local" id="range-start" step="1">
+        <span class="dim">→</span>
+        <input type="datetime-local" id="range-end" step="1">
+        <button id="apply-range" title="Apply custom time range">Apply</button>
+        <button id="now-btn" title="Jump to now (keeps the current time span)">◷ Now</button>
+        <button id="live-btn" title="Follow now, refreshing every 10 s">● Live</button>
+      </div>
+
+      <button id="axis-mode" title="Toggle between one axis per tag and a single axis"></button>
+
+      <button id="label-mode" title="Name tags by tag, description, or both"></button>
+
+      <button id="add-scooter" title="Add a value cursor (double-click the chart)">+ Scooter</button>
+    </div>
+
+    <div id="tagbar"></div>
+  </header>
+
+  <main id="chart-wrap">
+    <div id="chart"></div>
+    <div id="hover-box" class="hidden"></div>
+    <div id="loading" class="hidden">Loading…</div>
+    <div id="empty-hint">Search for tags above to add them to the plot.</div>
+    <div id="error-box" class="hidden"></div>
+  </main>
+
+  <div id="pill-popover" class="popover hidden"></div>
+  <div id="context-menu" class="popover menu hidden"></div>
+
+  <dialog id="open-dialog">
+    <h3>Saved plots</h3>
+    <input type="text" id="plot-search" placeholder="Filter by name…" autocomplete="off">
+    <div id="plot-labels" class="chips"></div>
+    <div id="plot-list"></div>
+    <input type="file" id="plot-file" accept=".json" multiple hidden>
+    <div class="dialog-buttons">
+      <button id="plot-import" title="Import plots from a file">Import…</button>
+      <button id="plot-open-all" title="Open every listed plot in its own tab">Open all</button>
+      <button id="plot-download-all" title="Download the listed plots as one file">Download all</button>
+      <span class="spacer"></span>
+      <button id="open-cancel">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="save-dialog">
+    <h3>Save plot</h3>
+    <input type="text" id="save-name" placeholder="Plot name" maxlength="60">
+    <input type="text" id="save-labels" placeholder="Labels, comma separated (optional)">
+    <div class="dialog-buttons">
+      <button id="save-cancel">Cancel</button>
+      <button id="save-confirm" class="primary">Save</button>
+    </div>
+  </dialog>
+
+  <dialog id="avg-dialog">
+    <h3>Average between scooters</h3>
+    <div id="avg-range"></div>
+    <div id="avg-rows"></div>
+    <div class="dialog-buttons"><button id="avg-close">Close</button></div>
+  </dialog>
+
+  <script src="vendor/uplot.iife.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

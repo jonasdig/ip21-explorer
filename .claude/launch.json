@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ip21-explorer",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "ip21_explorer.main", "--source", "sim", "--port", "8021"],
+      "port": 8021
+    }
+  ]
+}

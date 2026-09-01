@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+plots/
+.DS_Store
+.idea/
+.vscode/
+# Local server config (may hold internal URLs); ip21.env.example ends in
+# .example and is tracked on purpose.
+*.env

@@ -1,0 +1,429 @@
+/* IP21 Explorer - dark, full-screen trend layout */
+
+:root {
+  --bg: #14161c;
+  --panel: #1c2028;
+  --panel-2: #232834;
+  --border: #2e3442;
+  --text: #d6dae3;
+  --muted: #8b93a3;
+  --accent: #4fc3f7;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overflow: hidden;
+}
+
+body { display: flex; flex-direction: column; }
+
+button, select, input {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: #17455c; border-color: var(--accent); }
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+.hidden { display: none !important; }
+.dim { color: var(--muted); }
+.spacer { flex: 1; }
+
+/* -- top bar ------------------------------------------------------------- */
+
+#topbar {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+#tabbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 0 8px;
+}
+
+#tabs {
+  display: flex;
+  gap: 4px;
+  /* Takes the room the toolbar buttons leave; min-width lets it shrink below
+     its content so the tabs themselves start giving way instead. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+#tabs::-webkit-scrollbar { display: none; }
+
+/* Fades only towards a side that still has tabs out of view. */
+#tabs.fade-left {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 24px);
+  mask-image: linear-gradient(to right, transparent 0, #000 24px);
+}
+#tabs.fade-right {
+  -webkit-mask-image: linear-gradient(to left, transparent 0, #000 24px);
+  mask-image: linear-gradient(to left, transparent 0, #000 24px);
+}
+#tabs.fade-left.fade-right {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--muted);
+  user-select: none;
+  /* Shrink to a floor before the strip resorts to scrolling. */
+  flex: 0 1 auto;
+  min-width: 90px;
+  overflow: hidden;
+}
+.tab .name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tab.active { background: var(--bg); color: var(--text); border-color: var(--accent); }
+.tab .close { flex: none; border: none; background: none; padding: 0 2px; color: var(--muted); font-size: 14px; }
+.tab .close:hover { color: #e57373; }
+
+#add-tab { padding: 2px 9px; font-size: 15px; }
+#tab-overflow { flex: none; padding: 3px 7px; color: var(--muted); }
+#link-ranges { display: flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; margin-left: 8px; }
+/* The tab strip now claims the leftover width, so everything beside it has
+   to hold its size instead of being squeezed. */
+#tabbar > :not(#tabs) { flex: none; white-space: nowrap; }
+
+/* -- toolbar ------------------------------------------------------------- */
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  flex-wrap: wrap;
+}
+
+#search-box { position: relative; }
+#tag-search { width: 260px; }
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  z-index: 30;
+  min-width: 440px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.dropdown .item {
+  display: flex;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  align-items: baseline;
+}
+.dropdown .item:hover, .dropdown .item.selected { background: #2b3140; }
+.dropdown .item .name { font-weight: 600; white-space: nowrap; }
+.dropdown .item .desc { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dropdown .item .unit { margin-left: auto; color: var(--muted); }
+.dropdown .none { padding: 6px 10px; color: var(--muted); }
+
+.btn-group { display: flex; }
+.btn-group button { border-radius: 0; border-right-width: 0; }
+.btn-group button:first-child { border-radius: 4px 0 0 4px; }
+.btn-group button:last-child { border-radius: 0 4px 4px 0; border-right-width: 1px; }
+.btn-group button.active { background: #17455c; border-color: var(--accent); color: #fff; }
+
+#custom-range { display: flex; align-items: center; gap: 5px; }
+#custom-range input { width: 178px; padding: 2px 5px; color-scheme: dark; }
+
+/* -- tag pills ----------------------------------------------------------- */
+
+#tagbar {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px 7px 8px;
+  flex-wrap: wrap;
+  min-height: 4px;
+}
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  user-select: none;
+}
+.pill.axis { border-color: currentColor; box-shadow: 0 0 0 1px currentColor inset; }
+.pill.hidden-tag .name, .pill.hidden-tag .dot { opacity: 0.3; }
+.pill .dot {
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  flex: none;
+}
+.pill .name { color: var(--text); }
+.pill .range-note { color: var(--muted); font-size: 11px; }
+.pill .gear, .pill .close {
+  border: none; background: none; padding: 0 2px;
+  color: var(--muted); font-size: 12px;
+}
+.pill .gear:hover { color: var(--accent); }
+.pill .close:hover { color: #e57373; }
+
+.popover {
+  position: fixed;
+  z-index: 40;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 210px;
+}
+.popover .row { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.popover input[type="number"] { width: 110px; }
+.popover select, .popover input[type="text"] { width: 130px; }
+/* Twelve palette swatches plus the custom picker, two rows of six, lined up
+   with the 130px selects beside them. */
+.popover .swatches { display: flex; flex-wrap: wrap; gap: 4px; width: 130px; }
+.popover .swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.popover .swatch.taken { opacity: 0.4; }
+.popover .swatch.on { outline: 2px solid #e8eaf0; outline-offset: 1px; }
+/* Sized like the selects beside it, so it reads as a control rather than a
+   thirteenth swatch orphaned on its own row. */
+.popover input[type="color"] {
+  width: 130px;
+  height: 22px;
+  padding: 1px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.popover .map-row { display: flex; align-items: center; gap: 6px; }
+.popover .map-row select { width: 130px; }
+.popover .star {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+}
+.popover .star:hover { color: #ffd54f; }
+.popover .star.on { color: #ffd54f; }
+.popover .danger { color: #e57373; }
+
+.popover.menu { width: max-content; min-width: 190px; padding: 5px; gap: 0; }
+.popover.menu .menu-item {
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.popover.menu .menu-item:hover { background: #2b3140; }
+.popover.menu .menu-item.disabled { color: var(--muted); pointer-events: none; }
+.popover.menu .menu-item .key { color: var(--muted); font-size: 11px; }
+.popover.menu .sep { border-top: 1px solid var(--border); margin: 4px 0; }
+
+#now-btn { color: #e57373; border-color: #6b3030; font-weight: 600; }
+#now-btn:hover { border-color: #e57373; }
+
+#live-btn { font-weight: 600; }
+#live-btn.active { color: #7bd88f; border-color: #2f6b3d; background: #17251a; }
+#live-btn.active:hover { border-color: #7bd88f; }
+
+/* -- chart area ---------------------------------------------------------- */
+
+#chart-wrap { flex: 1; position: relative; min-height: 0; padding: 4px 6px 2px 2px; }
+#chart { width: 100%; height: 100%; }
+
+.u-select { background: rgba(79, 195, 247, 0.15); }
+
+#empty-hint, #error-box {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--muted);
+  font-size: 15px;
+}
+#error-box { color: #e57373; background: var(--panel); padding: 10px 16px; border-radius: 6px; border: 1px solid #6b3030; }
+
+#loading {
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  color: var(--accent);
+  z-index: 15;
+}
+
+#hover-box {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  z-index: 12;
+  background: rgba(28, 32, 40, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 9px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+#hover-box .time { color: var(--muted); margin-bottom: 3px; }
+#hover-box .row { display: flex; align-items: center; gap: 6px; }
+#hover-box .row .dot { width: 8px; height: 8px; border-radius: 50%; }
+#hover-box .row .val { margin-left: auto; padding-left: 14px; }
+
+/* -- scooters ------------------------------------------------------------ */
+
+.scooter-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;              /* wide invisible hit area */
+  margin-left: -4px;
+  cursor: ew-resize;
+  z-index: 10;
+}
+.scooter-line::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #e8eaf0;
+  opacity: 0.85;
+}
+.scooter-line:hover::before, .scooter-line.dragging::before { width: 2px; background: var(--accent); }
+
+.scooter-box {
+  position: absolute;
+  z-index: 11;
+  background: rgba(28, 32, 40, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: ns-resize;   /* the box moves up and down, the line moves sideways */
+}
+.scooter-box .head { display: flex; align-items: center; gap: 8px; color: var(--muted); margin-bottom: 3px; }
+.scooter-box .head .close { border: none; background: none; padding: 0; color: var(--muted); margin-left: auto; cursor: pointer; }
+.scooter-box .head .close:hover { color: #e57373; }
+.scooter-box .row { display: flex; align-items: center; gap: 6px; }
+.scooter-box .row .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.scooter-box .row .val { margin-left: auto; padding-left: 12px; }
+/* Descriptions can be long; the pill tooltip still carries the full text. */
+.scooter-box .row .name, #hover-box .row .name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  vertical-align: bottom;
+}
+
+/* -- dialogs ------------------------------------------------------------- */
+
+dialog {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 340px;
+  padding: 16px;
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+dialog h3 { margin: 0 0 10px 0; }
+.dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+#save-name, #save-labels, #plot-search { width: 100%; }
+#save-labels, #plot-search { margin-top: 8px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 8px 0; }
+.chips .chip {
+  padding: 3px 9px;
+  border-radius: 11px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.chips .chip.active { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
+
+.plot-item .tag-label {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 1px 7px;
+}
+.dialog-buttons .spacer { flex: 1; }
+
+#avg-range { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+#avg-rows { display: flex; flex-direction: column; gap: 2px; }
+#avg-rows .row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+#avg-rows .row .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+#avg-rows .row .name { margin-right: auto; padding-right: 16px; }
+#avg-rows .row .val { width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
+#avg-rows .row .val:last-child { width: 40px; color: var(--muted); }
+#avg-rows .row.head .val { color: var(--muted); font-size: 11px; }
+
+#plot-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+#plot-list .plot-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#plot-list .plot-item:hover { background: var(--panel-2); }
+#plot-list .plot-item .date { color: var(--muted); margin-left: auto; font-size: 12px; }
+#plot-list .plot-item .del { border: none; background: none; color: var(--muted); padding: 0 4px; }
+#plot-list .plot-item .del:hover { color: #e57373; }
+#plot-list .none { color: var(--muted); padding: 8px; }
+
+/* uPlot dark tweaks */
+.u-legend { display: none; }
