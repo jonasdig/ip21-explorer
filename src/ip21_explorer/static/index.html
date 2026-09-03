@@ -31,9 +31,11 @@
       <div id="presets" class="btn-group"></div>
 
       <div id="custom-range">
-        <input type="datetime-local" id="range-start" step="1">
+        <input type="text" id="range-start" class="timefield" autocomplete="off"
+               spellcheck="false" title="dd.mm.yyyy hh:mm:ss — arrow keys step the value under the cursor">
         <span class="dim">→</span>
-        <input type="datetime-local" id="range-end" step="1">
+        <input type="text" id="range-end" class="timefield" autocomplete="off"
+               spellcheck="false" title="dd.mm.yyyy hh:mm:ss — arrow keys step the value under the cursor">
         <button id="apply-range" title="Apply custom time range">Apply</button>
         <button id="now-btn" title="Jump to now (keeps the current time span)">◷ Now</button>
         <button id="live-btn" title="Follow now, refreshing every 10 s">● Live</button>
@@ -42,6 +44,8 @@
       <button id="axis-mode" title="Toggle between one axis per tag and a single axis"></button>
 
       <button id="label-mode" title="Name tags by tag, description, or both"></button>
+
+      <button id="nav-toggle" title="Show the navigator band under the chart">Nav</button>
 
       <button id="add-scooter" title="Add a value cursor (double-click the chart)">+ Scooter</button>
     </div>
@@ -57,7 +61,12 @@
     <div id="error-box" class="hidden"></div>
   </main>
 
+  <footer id="navigator">
+    <canvas id="nav-canvas"></canvas>
+  </footer>
+
   <div id="pill-popover" class="popover hidden"></div>
+  <div id="calendar-popover" class="popover hidden"></div>
   <div id="context-menu" class="popover menu hidden"></div>
 
   <dialog id="open-dialog">

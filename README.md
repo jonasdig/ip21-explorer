@@ -33,6 +33,14 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
 - **Time presets** (1h–30d), custom ranges, drag-select and mouse-wheel zoom
   with automatic re-fetch, zoom-back history (Esc), a red **Now** button, and
   a right-click menu (add scooter, delete scooters, zoom back, reset zoom)
+- **24-hour time fields** in `dd.mm.yyyy hh:mm:ss`, never AM/PM whatever the
+  browser's locale, with a calendar popover (Monday first) and arrow keys that
+  step whichever part the cursor sits in
+- **Navigator band** under the chart: a wider span with the visible window
+  drawn on it, to drag or stretch into place when a range landed slightly
+  wrong. It costs one extra coarse request for a single tag, only when the
+  window leaves the band's span — panning inside it is free — and the **Nav**
+  button switches it off entirely
 - **Sampling types per tag**: interpolated, average, min, max with
   an aggregate interval (or Auto) — individually per tag, like Process
   Explorer's Type/Period columns. Intervals start at 4 s, the finest sample
@@ -83,53 +91,26 @@ range or sampling changes, with stale requests cancelled.
 
 ## Installation
 
-Both ways of running it start from a clone, so that `git pull` is all an
-upgrade takes:
-
 ```bash
 git clone https://github.com/jonasdig/ip21-explorer.git
 cd ip21-explorer
-```
-
-### Development (simulator data)
-
-No plant access needed — the built-in simulator produces deterministic trends.
-
-```bash
 python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m ip21_explorer.main --source sim --port 8021
+.venv/bin/pip install -e ".[aspen]"   # ".[dev]" for the simulator and tests
 ```
 
-Open http://localhost:8021. Add `--latency 0.5` to simulate a slow historian.
-
-Run the tests with:
+Then start it, against the simulator or against live IP21:
 
 ```bash
-.venv/bin/pytest
+.venv/bin/python -m ip21_explorer.main --source sim --port 8021   # simulator
+.venv/bin/python -m ip21_explorer.main                            # live IP21
 ```
 
-### Live IP21 data
+Open http://localhost:8021. The simulator needs no plant access and produces
+deterministic trends; add `--latency 0.5` to imitate a slow historian. Live
+IP21 needs network access to an aspenONE ProcessData REST endpoint (the same
+one Aspen Process Explorer's web components use) — see Configuration below.
 
-Requires network access to an aspenONE ProcessData REST endpoint
-(the same one Aspen Process Explorer's web components use).
-
-```bash
-pip install -e ".[aspen]"
-```
-
-The `-e` matters: installed editable, the package runs straight from the clone,
-so upgrading is a `git pull` and a restart.
-
-Without cloning at all, if you only ever want to install and not follow the
-repository:
-
-```bash
-pip install "ip21-explorer[aspen] @ git+https://github.com/jonasdig/ip21-explorer.git"
-```
-
-Upgrading then means running that same command again, so the clone above is the
-better bet if you expect updates.
+Run the tests with `.venv/bin/pytest`.
 
 ## Configuration (live IP21 data)
 
@@ -172,28 +153,15 @@ Optional environment variables:
 
 Saved plots are written to `./plots/*.json` (override with `IP21_PLOTS_DIR`).
 
-## Upgrading to the latest version
-
-From the clone:
+## Upgrading
 
 ```bash
-cd ip21-explorer
-git pull
-pip install -e ".[aspen]"
+git pull && .venv/bin/pip install -e ".[aspen]"
 ```
 
-Then restart the server. The reinstall picks up any dependency changes; for a
-pure frontend/backend code change a plain `git pull` + restart is enough, since
-the package is installed editable (`-e`). Saved plots (`plots/*.json`), your
-`ip21.env`, and the per-browser state (open tabs, colors, scooters) are not
-touched by an upgrade — reload the page with Ctrl+F5 if the browser serves a
-stale `app.js` from cache.
-
-To see what changed:
-
-```bash
-git log --oneline HEAD@{1}..HEAD
-```
+Then restart the server. Saved plots (`plots/*.json`), your `ip21.env` and the
+per-browser state (open tabs, colors, scooters) are untouched — reload with
+Ctrl+F5 if the browser serves a stale `app.js` from cache.
 
 ## Architecture
 

@@ -64,6 +64,10 @@ const LABEL_MODES = {
 // ever serve in one go. Span is not the measure - liveTick already refreshes
 // once per bucket, so a wide window is the cheapest one - request size is.
 const LIVE_MAX_POINTS = 20000;
+// The server refuses more than this per tag in one request (see MAX_POINTS in
+// sources/simulator.py); a pinned interval over a wide window is the only way
+// to reach it.
+const DATA_MAX_POINTS = 200000;
 
 /* ------------------------------------------------------------------- state */
 
@@ -162,7 +166,7 @@ function migrateTab(tab, oldState) {
 function defaultState() {
   // labelMode is a display preference for every tab ("tag" | "desc" | "both"),
   // deliberately not part of a plot config so a shared plot cannot change it.
-  state = { tabs: [], activeTabId: null, labelMode: "tag" };
+  state = { tabs: [], activeTabId: null, labelMode: "tag", navigator: true };
   const tab = newTab("Plot 1");
   state.tabs.push(tab);
   state.activeTabId = tab.id;
@@ -176,6 +180,7 @@ function loadState() {
     if (!parsed.tabs || !parsed.tabs.length) return defaultState();
     state = parsed;
     if (!LABEL_MODES[state.labelMode]) state.labelMode = "tag";
+    if (typeof state.navigator !== "boolean") state.navigator = true;
     for (const tab of state.tabs) migrateTab(tab, parsed);
     delete state.linkRanges;
     if (!state.tabs.some((t) => t.id === state.activeTabId)) {
@@ -277,21 +282,103 @@ function fmtVal(v) {
   return v.toFixed(3);
 }
 
+// A span as the largest unit that reads cleanly, for messages about limits.
+function fmtSpan(seconds) {
+  if (seconds >= 86400) return `${Math.round(seconds / 86400)} d`;
+  if (seconds >= 3600) return `${Math.round(seconds / 3600)} h`;
+  if (seconds >= 60) return `${Math.round(seconds / 60)} min`;
+  return `${Math.round(seconds)} s`;
+}
+
 function intervalLabel(value) {
   const item = INTERVALS.find((i) => i.value === value);
   return item ? item.label : `${value} s`;
 }
 
-function toLocalInput(t) {
-  const d = new Date(t * 1000);
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` +
-    `T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+// Reads what the time fields accept, in the same 24h dd.mm.yyyy format
+// fmtTime() writes. A native datetime-local was formatted by the browser's
+// locale - AM/PM and all - which the page cannot override, so the fields are
+// plain text and this is what turns them back into a timestamp.
+//
+// Deliberately forgiving, since these are typed by hand: the date may drop its
+// year, and either half may be left out entirely.
+//   01.09.2026 14:30:00   01.09.2026 14:30   01.09.2026
+//   01.09 14:30           14:30              14:30:05
+//   2026-09-01T14:30:00   2026-09-01 14:30
+// Returns epoch seconds, or null when it cannot be read.
+function parseTimeInput(text, now) {
+  const value = String(text == null ? "" : text).trim();
+  if (!value) return null;
+  const today = new Date((now == null ? Date.now() / 1000 : now) * 1000);
+
+  const iso = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
+  );
+  if (iso) {
+    const [, y, mo, d, h, mi, sec] = iso;
+    return mk(+y, +mo, +d, +(h || 0), +(mi || 0), +(sec || 0));
+  }
+
+  const parts = value.split(/\s+/);
+  const datePart = parts.length > 1 || parts[0].includes(".") ? parts[0] : null;
+  const timePart = parts.length > 1 ? parts[1] : (datePart ? null : parts[0]);
+
+  let y = today.getFullYear(), mo = today.getMonth() + 1, d = today.getDate();
+  if (datePart) {
+    const m = datePart.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?$/);
+    if (!m) return null;
+    d = +m[1];
+    mo = +m[2];
+    if (m[3]) y = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+  }
+
+  let h = 0, mi = 0, sec = 0;
+  if (timePart) {
+    const m = timePart.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (!m) return null;
+    h = +m[1];
+    mi = +m[2];
+    sec = +(m[3] || 0);
+  }
+  return mk(y, mo, d, h, mi, sec);
+
+  function mk(year, month, day, hour, minute, second) {
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    if (hour > 23 || minute > 59 || second > 59) return null;
+    const dt = new Date(year, month - 1, day, hour, minute, second, 0);
+    // Rejects the likes of 31.02: the Date constructor rolls those over.
+    if (dt.getMonth() !== month - 1 || dt.getDate() !== day) return null;
+    return dt.getTime() / 1000;
+  }
 }
 
-function fromLocalInput(value) {
-  if (!value) return null;
-  const t = new Date(value).getTime();
-  return Number.isNaN(t) ? null : t / 1000;
+// Which part of "dd.mm.yyyy HH:MM:SS" the caret sits in, so the arrow keys can
+// step that unit. Positions are fixed, the format has no variable-width parts.
+const TIME_SEGMENTS = [
+  { from: 0, to: 2, unit: "day" },
+  { from: 3, to: 5, unit: "month" },
+  { from: 6, to: 10, unit: "year" },
+  { from: 11, to: 13, unit: "hour" },
+  { from: 14, to: 16, unit: "minute" },
+  { from: 17, to: 19, unit: "second" },
+];
+
+function segmentAt(caret) {
+  const seg = TIME_SEGMENTS.find((s) => caret >= s.from && caret <= s.to);
+  return seg || TIME_SEGMENTS[TIME_SEGMENTS.length - 1];
+}
+
+// One step of `unit` on a timestamp. Months and years go through Date so that
+// the 31st of a short month lands on a real date.
+function stepTime(t, unit, delta) {
+  const d = new Date(t * 1000);
+  if (unit === "year") d.setFullYear(d.getFullYear() + delta);
+  else if (unit === "month") d.setMonth(d.getMonth() + delta);
+  else if (unit === "day") d.setDate(d.getDate() + delta);
+  else if (unit === "hour") d.setHours(d.getHours() + delta);
+  else if (unit === "minute") d.setMinutes(d.getMinutes() + delta);
+  else d.setSeconds(d.getSeconds() + delta);
+  return d.getTime() / 1000;
 }
 
 function nearestValue(ts, vs, t) {
@@ -315,10 +402,27 @@ function resolveRange(tab) {
   return { start: tab.range.start, end: tab.range.end };
 }
 
-function showError(msg) {
+// A successful fetch clears this box, so a message that is not about a failed
+// request needs protecting from that - hence showNotice() below.
+let errorHoldUntil = 0;
+
+function showError(msg, holdMs) {
   const box = $("error-box");
-  if (msg) { box.textContent = msg; box.classList.remove("hidden"); }
-  else box.classList.add("hidden");
+  if (msg) {
+    box.textContent = msg;
+    box.classList.remove("hidden");
+    errorHoldUntil = holdMs ? Date.now() + holdMs : 0;
+  } else if (Date.now() >= errorHoldUntil) {
+    box.classList.add("hidden");
+    errorHoldUntil = 0;
+  }
+}
+
+// Something worth saying that is not an error: stays put for a few seconds
+// even if a fetch finishes in the meantime, then clears itself.
+function showNotice(msg, ms = 4000) {
+  showError(msg, ms);
+  setTimeout(() => showError(null), ms);
 }
 
 /* --------------------------------------------------------------------- API */
@@ -400,6 +504,7 @@ async function loadData(tab) {
   if (!tab.tags.length) { r.raw = null; r.data = null; renderChart(); return; }
   ensureUnits(tab);
   ensureDescriptions(tab);
+  ensureNavData(tab);
 
   const { start, end } = resolveRange(tab);
   if (r.abort) r.abort.abort();
@@ -838,6 +943,16 @@ function setPreset(label) {
 
 function setAbsoluteRange(tab, start, end, debounced, keepLive) {
   if (end - start < MIN_SPAN_S) end = start + MIN_SPAN_S;
+  // A tag pinned to a fine interval caps how wide a window can be asked for.
+  // Clamp around the centre so dragging the navigator wide just stops, rather
+  // than failing the request with "too many points requested".
+  const maxSpan = maxSpanFor(tab);
+  if (end - start > maxSpan) {
+    const centre = (start + end) / 2;
+    start = centre - maxSpan / 2;
+    end = centre + maxSpan / 2;
+    showNotice(`Window capped at ${fmtSpan(maxSpan)} by the pinned sample interval`);
+  }
   // Zooming or panning to an absolute window means the user wants to look at
   // something specific: stop following now.
   if (!keepLive && tab.live) tab.live = false;
@@ -855,6 +970,7 @@ function setAbsoluteRange(tab, start, end, debounced, keepLive) {
     loadData(tab);
   }
   renderToolbar();
+  renderNavigator();
   saveState();
 }
 
@@ -881,13 +997,26 @@ function toggleLive() {
 
 // Auto intervals are sized by the server from the points budget, so they can
 // never run away however wide the window. A manual interval bypasses that
-// budget - it is the only way a refresh can ask for millions of points - and
-// the smallest one in the tab decides, since it drives the tick rate.
-function liveDisabledReason(tab) {
+// budget - it is the only way a request can ask for millions of points - and
+// the finest one in the tab decides.
+function finestManualInterval(tab) {
   const manual = tab.tags.map((t) => Number(t.interval)).filter((n) => n > 0);
-  if (!manual.length) return null;
+  return manual.length ? Math.min(...manual) : null;
+}
+
+// Widest window that can still be fetched. Beyond this the server rejects the
+// request outright ("too many points requested"), so panning and zooming clamp
+// to it rather than letting the fetch fail.
+function maxSpanFor(tab) {
+  const step = finestManualInterval(tab);
+  return step == null ? Infinity : step * DATA_MAX_POINTS;
+}
+
+function liveDisabledReason(tab) {
+  const step = finestManualInterval(tab);
+  if (step == null) return null;
   const { start, end } = resolveRange(tab);
-  const points = (end - start) / Math.min(...manual);
+  const points = (end - start) / step;
   if (points <= LIVE_MAX_POINTS) return null;
   return `Live is off: each refresh would ask for ${Math.round(points).toLocaleString("no")} points per tag`;
 }
@@ -1240,6 +1369,7 @@ function removeTag(uid) {
     rebuildJoined(tab, r);
   }
   renderChart();
+  renderNavigator();
   saveState();
 }
 
@@ -1292,6 +1422,8 @@ function renderTagbar() {
       tab.axisUid = tag.uid;
       renderTagbar();
       renderChart();
+      ensureNavData(tab); // the navigator follows the grid tag
+      renderNavigator();
       saveState();
     });
     bar.appendChild(pill);
@@ -2076,8 +2208,10 @@ function renderToolbar() {
 
   // Custom range inputs reflect the resolved range
   const { start, end } = resolveRange(tab);
-  $("range-start").value = toLocalInput(start);
-  $("range-end").value = toLocalInput(end);
+  // Not while typing: rewriting the field under the caret loses the edit.
+  for (const [id, t] of [["range-start", start], ["range-end", end]]) {
+    if (document.activeElement !== $(id)) $(id).value = fmtTime(t, true);
+  }
 
   const liveBlocked = liveDisabledReason(tab);
   $("live-btn").classList.toggle("active", !!tab.live);
@@ -2087,24 +2221,427 @@ function renderToolbar() {
   const axisModeLabels = { stacked: "Axes: stacked", single: "Axes: one", all: "Axes: all" };
   $("axis-mode").textContent = axisModeLabels[tab.axisMode] || axisModeLabels.stacked;
   $("label-mode").textContent = (LABEL_MODES[state.labelMode] || LABEL_MODES.tag).label;
+  $("nav-toggle").classList.toggle("active", !!state.navigator);
   $("link-ranges-cb").checked = !!tab.linked;
 }
 
+/* ------------------------------------------------------------- navigator */
+
+// The band under the chart shows a wider span with the visible window drawn on
+// top, so a window that landed slightly wrong can be dragged into place.
+//
+// It costs the historian one extra request, so the terms are strict: a single
+// tag (the one whose grid is shown), a coarse 240 points, and a context only
+// rebuilt when the window leaves it or the span changes materially. Panning
+// inside the context is free, and the band can be switched off entirely.
+const NAV_CONTEXT_FACTOR = 8;   // context span, as a multiple of the window
+const NAV_POINTS = 240;         // coarse on purpose: this is a thumbnail
+const NAV_HANDLE_PX = 10;       // grab width of the two edge handles
+
+let navDrag = null;             // {mode, startX, start, end} while dragging
+
+// The band tracks one tag, not all of them: several traces at thumbnail height
+// would be unreadable, and each one costs another request. It follows the grid
+// tag - the one whose axis is shown, picked by clicking its pill - so the
+// choice is already visible in the tag bar, and the band names it too.
+function navTag(tab) {
+  return byUid(tab, tab.axisUid) || tab.tags.find((t) => t.visible !== false);
+}
+
+// Context for a window, centred on it. Clamped so it never reaches into the
+// future further than the window already does.
+function navContextFor(start, end) {
+  const span = Math.max(1, end - start);
+  const pad = span * (NAV_CONTEXT_FACTOR - 1) / 2;
+  const limit = Math.max(end, Date.now() / 1000);
+  let ctxEnd = Math.min(end + pad, limit);
+  return { start: ctxEnd - span * NAV_CONTEXT_FACTOR, end: ctxEnd };
+}
+
+// One coarse request, and only when the current context can no longer serve
+// the window. Everything else - dragging, live ticks inside the context - is
+// answered from what is already loaded.
+async function ensureNavData(tab) {
+  const r = rt(tab);
+  if (!state.navigator || !tab.tags.length) return;
+  const { start, end } = resolveRange(tab);
+  const span = end - start;
+  const tag = navTag(tab);
+  if (!tag) return;
+  const fits = r.navStart != null && r.navTagUid === tag.uid &&
+    start >= r.navStart && end <= r.navEnd &&
+    r.navSpan && span <= r.navSpan * 2 && span >= r.navSpan / 2;
+  if (fits) return;
+  const ctx = navContextFor(start, end);
+  r.navStart = ctx.start;
+  r.navEnd = ctx.end;
+  r.navSpan = span;
+  r.navColor = tag.color;
+  r.navTagUid = tag.uid;
+
+  if (r.navAbort) r.navAbort.abort();
+  r.navAbort = new AbortController();
+  const seq = (r.navSeq = (r.navSeq || 0) + 1);
+  const params = new URLSearchParams({
+    tags: reqName(tag),
+    start: String(ctx.start),
+    end: String(ctx.end),
+    sample: tag.sample,
+    interval: "auto",
+    points: String(NAV_POINTS),
+  });
+  try {
+    const resp = await fetch(`/api/data?${params}`, { signal: r.navAbort.signal });
+    if (!resp.ok) return;
+    const body = await resp.json();
+    if (seq !== r.navSeq) return; // superseded
+    r.navData = body.series[reqName(tag)] || null;
+    renderNavigator();
+  } catch (e) { /* aborted or transient - the band just stays as it was */ }
+}
+
+function navCanvasRect() {
+  const canvas = $("nav-canvas");
+  return canvas.getBoundingClientRect();
+}
+
+// `preview` draws a window that is not committed yet, so a drag can be shown
+// without touching tab.range - and therefore without fetching.
+function renderNavigator(preview) {
+  const band = $("navigator");
+  band.classList.toggle("hidden", !state.navigator);
+  if (!state.navigator) return;
+  const tab = activeTab();
+  const canvas = $("nav-canvas");
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(rect.width * dpr));
+  canvas.height = Math.max(1, Math.round(rect.height * dpr));
+  const ctx2d = canvas.getContext("2d");
+  ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx2d.clearRect(0, 0, rect.width, rect.height);
+
+  const r = rt(tab);
+  if (r.navStart == null || !tab.tags.length) {
+    ctx2d.fillStyle = "#8b93a3";
+    ctx2d.font = "11px -apple-system, Segoe UI, Roboto, sans-serif";
+    ctx2d.fillText(tab.tags.length ? "Loading overview…" : "No tags to show", 8, 20);
+    return;
+  }
+  const x = (t) => ((t - r.navStart) / (r.navEnd - r.navStart)) * rect.width;
+
+  // Coarse trace of the one tag the band tracks
+  if (r.navData && r.navData.t && r.navData.t.length) {
+    const vs = r.navData.v.filter((v) => v != null);
+    const lo = Math.min(...vs), hi = Math.max(...vs);
+    const range = hi - lo || 1;
+    const y = (v) => rect.height - 4 - ((v - lo) / range) * (rect.height - 12);
+    ctx2d.beginPath();
+    let down = false;
+    r.navData.t.forEach((t, i) => {
+      const v = r.navData.v[i];
+      if (v == null) { down = false; return; }
+      if (down) ctx2d.lineTo(x(t), y(v)); else ctx2d.moveTo(x(t), y(v));
+      down = true;
+    });
+    ctx2d.strokeStyle = r.navColor || "#4fc3f7";
+    ctx2d.lineWidth = 1;
+    ctx2d.stroke();
+  }
+
+  // Time ticks, so the band says where in the day you are
+  ctx2d.fillStyle = "#8b93a3";
+  ctx2d.font = "10px -apple-system, Segoe UI, Roboto, sans-serif";
+  for (let i = 1; i < 6; i++) {
+    const t = r.navStart + ((r.navEnd - r.navStart) * i) / 6;
+    const px = x(t);
+    ctx2d.fillStyle = "#2e3442";
+    ctx2d.fillRect(px, 0, 1, rect.height);
+    ctx2d.fillStyle = "#8b93a3";
+    ctx2d.fillText(fmtTime(t, false), px + 3, rect.height - 3);
+  }
+
+  // Say which tag is drawn, so the band is never ambiguous about what it shows
+  const shown = navTag(tab);
+  if (shown) {
+    ctx2d.fillStyle = shown.color || "#8b93a3";
+    ctx2d.font = "10px -apple-system, Segoe UI, Roboto, sans-serif";
+    ctx2d.fillText(tagLabel(tab, shown), 4, 11);
+  }
+
+  // Everything outside the window is dimmed; the window itself gets a frame
+  const { start, end } = preview || resolveRange(tab);
+  const x0 = Math.max(0, x(start)), x1 = Math.min(rect.width, x(end));
+  ctx2d.fillStyle = "rgba(20, 22, 28, 0.66)";
+  ctx2d.fillRect(0, 0, x0, rect.height);
+  ctx2d.fillRect(x1, 0, rect.width - x1, rect.height);
+  ctx2d.strokeStyle = "#4fc3f7";
+  ctx2d.lineWidth = 1;
+  ctx2d.strokeRect(x0 + 0.5, 0.5, Math.max(1, x1 - x0 - 1), rect.height - 1);
+  // Handles drawn as wide as they are comfortable to grab.
+  ctx2d.fillStyle = "#4fc3f7";
+  ctx2d.fillRect(x0, 0, 3, rect.height);
+  ctx2d.fillRect(x1 - 3, 0, 3, rect.height);
+}
+
+function navTimeAt(clientX) {
+  const tab = activeTab();
+  const r = rt(tab);
+  const rect = navCanvasRect();
+  const frac = (clientX - rect.left) / rect.width;
+  return r.navStart + frac * (r.navEnd - r.navStart);
+}
+
+function onNavPointerDown(e) {
+  const tab = activeTab();
+  const r = rt(tab);
+  if (r.navStart == null || !tab.tags.length) return;
+  const rect = navCanvasRect();
+  const { start, end } = resolveRange(tab);
+  const x = (t) => ((t - r.navStart) / (r.navEnd - r.navStart)) * rect.width;
+  const px = e.clientX - rect.left;
+  const x0 = x(start), x1 = x(end);
+
+  let mode;
+  if (Math.abs(px - x0) <= NAV_HANDLE_PX) mode = "start";
+  else if (Math.abs(px - x1) <= NAV_HANDLE_PX) mode = "end";
+  else if (px > x0 && px < x1) mode = "move";
+  else mode = "jump";
+
+  if (mode === "jump") {
+    // Clicking the empty part re-centres the window there.
+    const span = end - start;
+    const centre = navTimeAt(e.clientX);
+    setAbsoluteRange(tab, centre - span / 2, centre + span / 2, false);
+    return;
+  }
+  e.preventDefault();
+  navDrag = { mode, startT: navTimeAt(e.clientX), start, end };
+  $("nav-canvas").setPointerCapture(e.pointerId);
+}
+
+function onNavPointerMove(e) {
+  if (!navDrag) return;
+  const tab = activeTab();
+  const delta = navTimeAt(e.clientX) - navDrag.startT;
+  let start = navDrag.start, end = navDrag.end;
+  if (navDrag.mode === "move") { start += delta; end += delta; }
+  else if (navDrag.mode === "start") start = Math.min(navDrag.start + delta, end - MIN_SPAN_S);
+  else end = Math.max(navDrag.end + delta, start + MIN_SPAN_S);
+  // Preview only. The chart follows the drag for free, but nothing is asked of
+  // the historian until the pointer is released, so one drag is exactly one
+  // request however long it took - the wheel-zoom debounce would fire mid-drag
+  // on anything slower than 300 ms.
+  navDrag.preview = { start, end };
+  if (chart) chart.setScale("x", { min: start, max: end });
+  renderNavigator(navDrag.preview);
+}
+
+function onNavPointerUp(e) {
+  if (!navDrag) return;
+  const preview = navDrag.preview;
+  navDrag = null;
+  try { $("nav-canvas").releasePointerCapture(e.pointerId); } catch (err) { /* already gone */ }
+  if (preview) setAbsoluteRange(activeTab(), preview.start, preview.end, false);
+}
+
+function initNavigator() {
+  const canvas = $("nav-canvas");
+  canvas.addEventListener("pointerdown", onNavPointerDown);
+  canvas.addEventListener("pointermove", onNavPointerMove);
+  canvas.addEventListener("pointerup", onNavPointerUp);
+  canvas.addEventListener("pointercancel", onNavPointerUp);
+  // Cursor hints which of the three grabs is under the pointer.
+  canvas.addEventListener("pointermove", (e) => {
+    if (navDrag) return;
+    const tab = activeTab();
+    const r = rt(tab);
+    if (r.navStart == null) { canvas.style.cursor = "default"; return; }
+    const rect = navCanvasRect();
+    const { start, end } = resolveRange(tab);
+    const x = (t) => ((t - r.navStart) / (r.navEnd - r.navStart)) * rect.width;
+    const px = e.clientX - rect.left;
+    canvas.style.cursor =
+      Math.abs(px - x(start)) <= NAV_HANDLE_PX || Math.abs(px - x(end)) <= NAV_HANDLE_PX
+        ? "ew-resize"
+        : (px > x(start) && px < x(end) ? "grab" : "pointer");
+  });
+  $("nav-toggle").addEventListener("click", () => {
+    state.navigator = !state.navigator;
+    renderToolbar();
+    renderNavigator();
+    if (state.navigator) ensureNavData(activeTab());
+    saveState();
+  });
+}
+
+/* -- time fields and calendar --------------------------------------------- */
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+// Monday first, as the rest of Europe reads a calendar.
+const WEEKDAY_NAMES = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+
+let calendarField = null;   // the input the open calendar belongs to
+let calendarMonth = null;   // first of the month on show
+
+// Arrow keys step the unit under the caret, so the field keeps the one thing
+// the native picker was actually good at.
+function onTimeFieldKey(e) {
+  const field = e.target;
+  if (e.key === "Enter") { $("apply-range").click(); return; }
+  if (e.key === "Escape") { hideCalendar(); field.blur(); return; }
+  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+  const t = parseTimeInput(field.value);
+  if (t == null) return;
+  e.preventDefault();
+  const caret = field.selectionStart || 0;
+  const seg = segmentAt(caret);
+  const stepped = stepTime(t, seg.unit, e.key === "ArrowUp" ? 1 : -1);
+  field.value = fmtTime(stepped, true);
+  field.setSelectionRange(seg.from, seg.to);
+  if (calendarField === field) showCalendar(field); // keep the grid in step
+}
+
+function hideCalendar() {
+  $("calendar-popover").classList.add("hidden");
+  calendarField = null;
+}
+
+// Writes back to the text field only - Apply stays the one thing that asks the
+// historian for data, so a half-finished pick never triggers a fetch.
+function showCalendar(field) {
+  const pop = $("calendar-popover");
+  const selected = parseTimeInput(field.value) ?? Date.now() / 1000;
+  const sel = new Date(selected * 1000);
+  if (calendarField !== field || !calendarMonth) {
+    calendarMonth = new Date(sel.getFullYear(), sel.getMonth(), 1);
+  }
+  calendarField = field;
+  pop.innerHTML = "";
+
+  const setDate = (year, month, day) => {
+    const cur = parseTimeInput(field.value) ?? Date.now() / 1000;
+    const c = new Date(cur * 1000);
+    const next = new Date(year, month, day, c.getHours(), c.getMinutes(), c.getSeconds());
+    field.value = fmtTime(next.getTime() / 1000, true);
+    showCalendar(field);
+  };
+
+  // Month header with the two steppers
+  const head = el("div", "cal-head");
+  const prev = el("button", "cal-nav", "\u2039");
+  prev.title = "Previous month";
+  prev.addEventListener("click", () => {
+    calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1);
+    showCalendar(field);
+  });
+  const next = el("button", "cal-nav", "\u203a");
+  next.title = "Next month";
+  next.addEventListener("click", () => {
+    calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1);
+    showCalendar(field);
+  });
+  head.appendChild(prev);
+  head.appendChild(el("span", "cal-title",
+    `${MONTH_NAMES[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`));
+  head.appendChild(next);
+  pop.appendChild(head);
+
+  // Day grid, six rows so the popover never changes height month to month
+  const grid = el("div", "cal-grid");
+  for (const name of WEEKDAY_NAMES) grid.appendChild(el("span", "cal-dow", name));
+  const firstOfMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+  const lead = (firstOfMonth.getDay() + 6) % 7; // getDay() is Sunday-first
+  const today = new Date();
+  const isSameDay = (a, b) => a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  for (let i = 0; i < 42; i++) {
+    const day = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1 + i - lead);
+    const outside = day.getMonth() !== calendarMonth.getMonth();
+    const cell = el("button",
+      "cal-day" + (outside ? " outside" : "") +
+      (isSameDay(day, today) ? " today" : "") +
+      (isSameDay(day, sel) ? " on" : ""), String(day.getDate()));
+    cell.addEventListener("click", () =>
+      setDate(day.getFullYear(), day.getMonth(), day.getDate()));
+    grid.appendChild(cell);
+  }
+  pop.appendChild(grid);
+
+  // 24h clock, one box per unit
+  const timeRow = el("div", "cal-time");
+  const units = [
+    ["hour", sel.getHours(), 23],
+    ["minute", sel.getMinutes(), 59],
+    ["second", sel.getSeconds(), 59],
+  ];
+  units.forEach(([unit, value, max], i) => {
+    if (i) timeRow.appendChild(el("span", "dim", ":"));
+    const box = el("input");
+    box.type = "number";
+    box.min = "0";
+    box.max = String(max);
+    box.value = pad2(value);
+    box.addEventListener("change", () => {
+      const n = Math.max(0, Math.min(max, parseInt(box.value, 10) || 0));
+      const cur = parseTimeInput(field.value) ?? Date.now() / 1000;
+      const c = new Date(cur * 1000);
+      if (unit === "hour") c.setHours(n);
+      else if (unit === "minute") c.setMinutes(n);
+      else c.setSeconds(n);
+      field.value = fmtTime(c.getTime() / 1000, true);
+      showCalendar(field);
+    });
+    timeRow.appendChild(box);
+  });
+  pop.appendChild(timeRow);
+
+  const nowBtn = el("button", null, "Now");
+  nowBtn.addEventListener("click", () => {
+    field.value = fmtTime(Date.now() / 1000, true);
+    calendarMonth = null;
+    showCalendar(field);
+  });
+  pop.appendChild(nowBtn);
+
+  // Anchored under the field, kept inside the window like the pill popover.
+  const rect = field.getBoundingClientRect();
+  pop.classList.remove("hidden");
+  pop.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth - 250))}px`;
+  pop.style.top = `${rect.bottom + 6}px`;
+}
+
+function initTimeFields() {
+  for (const id of ["range-start", "range-end"]) {
+    const field = $(id);
+    field.addEventListener("keydown", onTimeFieldKey);
+    field.addEventListener("focus", () => showCalendar(field));
+    field.addEventListener("click", () => showCalendar(field));
+    // Normalise whatever was typed once the field is left, so the format the
+    // fields show is always the one they document.
+    field.addEventListener("blur", () => {
+      const t = parseTimeInput(field.value);
+      if (t != null) field.value = fmtTime(t, true);
+    });
+  }
+  document.addEventListener("pointerdown", (e) => {
+    const pop = $("calendar-popover");
+    if (pop.classList.contains("hidden")) return;
+    if (!pop.contains(e.target) && !e.target.closest(".timefield")) hideCalendar();
+  });
+}
+
 function initToolbar() {
+  initTimeFields();
   $("apply-range").addEventListener("click", () => {
-    const start = fromLocalInput($("range-start").value);
-    const end = fromLocalInput($("range-end").value);
+    const start = parseTimeInput($("range-start").value);
+    const end = parseTimeInput($("range-end").value);
     if (start == null || end == null || end <= start) {
       showError("Invalid custom time range");
       return;
     }
-    const tab = activeTab();
-    pushHistory(tab);
-    tab.range = { start, end, fromPreset: null };
-    propagateRange(tab);
-    loadData(tab);
-    renderToolbar();
-    saveState();
+    setAbsoluteRange(activeTab(), start, end, false);
   });
 
   $("now-btn").addEventListener("click", jumpToNow);
@@ -2480,8 +3017,7 @@ async function copyShareLink() {
   const link = await buildShareLink(activeTab());
   try {
     await navigator.clipboard.writeText(link);
-    showError("Share link copied to the clipboard");
-    setTimeout(() => showError(null), 2500);
+    showNotice("Share link copied to the clipboard", 2500);
   } catch (e) {
     // Clipboard blocked: put the link in the URL bar so it can be copied.
     location.hash = link.slice(link.indexOf("#") + 1);
@@ -2576,6 +3112,7 @@ function renderAll() {
   renderToolbar();
   renderTagbar();
   renderChart();
+  renderNavigator();
 }
 
 function init() {
@@ -2584,6 +3121,7 @@ function init() {
   initToolbar();
   initTabbar();
   initDialogs();
+  initNavigator();
   ensureFavorites();
   renderAll();
   // A #p=... link adds its plot as a new tab on top of the restored state.
@@ -2594,6 +3132,7 @@ function init() {
       chart.setSize(chartSize());
       positionScooters();
     }
+    renderNavigator(); // the canvas is sized from its own box, so redraw it
   });
   resizeObserver.observe($("chart-wrap"));
 

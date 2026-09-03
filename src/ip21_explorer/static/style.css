@@ -367,6 +367,53 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   vertical-align: bottom;
 }
 
+/* -- navigator ------------------------------------------------------------ */
+
+/* A fixed-height band below the chart; #chart-wrap has flex: 1 and gives up
+   the space. Hiding it hands the height straight back to the chart. */
+#navigator {
+  flex: none;
+  height: 54px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 2px 6px 2px 2px;
+}
+#nav-canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+
+/* -- time fields and calendar -------------------------------------------- */
+
+/* Wide enough for dd.mm.yyyy hh:mm:ss without wrapping, tabular so the caret
+   lines up with the segment the arrow keys will step. */
+.timefield {
+  width: 148px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+#calendar-popover { width: 232px; gap: 6px; }
+.cal-head { display: flex; align-items: center; justify-content: space-between; }
+.cal-title { font-weight: 600; }
+.cal-nav { padding: 1px 8px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-dow {
+  text-align: center;
+  color: var(--muted);
+  font-size: 11px;
+  padding-bottom: 2px;
+}
+.cal-day {
+  padding: 3px 0;
+  border: 1px solid transparent;
+  background: none;
+  font-variant-numeric: tabular-nums;
+}
+.cal-day:hover { background: #2b3140; }
+.cal-day.outside { color: var(--muted); opacity: 0.5; }
+.cal-day.today { border-color: var(--muted); }
+.cal-day.on { background: #17455c; border-color: var(--accent); }
+.cal-time { display: flex; align-items: center; justify-content: center; gap: 3px; }
+.cal-time input[type="number"] { width: 52px; text-align: center; }
+
 /* -- dialogs ------------------------------------------------------------- */
 
 dialog {
