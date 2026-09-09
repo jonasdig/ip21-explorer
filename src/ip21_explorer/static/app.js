@@ -1386,7 +1386,6 @@ function removeTags(tab, uids) {
   if (dropped.has(tab.axisUid)) {
     tab.axisUid = tab.tags.length ? tab.tags[0].uid : null;
   }
-  hidePopover();
   renderTags();
   const r = rt(tab);
   if (r.raw) { // drop locally, no refetch needed
@@ -1417,7 +1416,7 @@ function renderTagbar() {
     const pill = el("div", "pill" + (tag.uid === tab.axisUid ? " axis" : "") +
       (tag.visible === false ? " hidden-tag" : ""));
     pill.style.color = tag.color;
-    pill.title = `${tag.description} [${tag.unit}]\nClick: use for grid · Dot: hide/show · ⚙: scale, sampling, map`;
+    pill.title = `${tag.description} [${tag.unit}]\nClick: use for grid · Dot: hide/show · ⚙: settings, in the tag table`;
 
     const dot = el("span", "dot");
     dot.style.background = tag.color;
@@ -1437,8 +1436,8 @@ function renderTagbar() {
     if (notes.length) pill.appendChild(el("span", "range-note", notes.join(" ")));
 
     const gear = el("button", "gear", "⚙");
-    gear.title = "Tag settings";
-    gear.addEventListener("click", (e) => { e.stopPropagation(); showPopover(tag, pill); });
+    gear.title = "Settings for this tag, in the table below";
+    gear.addEventListener("click", (e) => { e.stopPropagation(); openTagTable(tag); });
     pill.appendChild(gear);
 
     const close = el("button", "close", "×");
@@ -1454,191 +1453,6 @@ function renderTagbar() {
     pill.addEventListener("click", () => setAxisOwner(tab, tag.uid));
     bar.appendChild(pill);
   }
-}
-
-/* -- tag settings popover ------------------------------------------------- */
-
-// The pill currently representing a tag. renderTagbar() rebuilds every pill,
-// so an element captured earlier can be detached - and a detached element
-// measures as 0x0 at the origin, which would throw the popover into the
-// top-left corner.
-function pillFor(tag) {
-  const index = activeTab().tags.indexOf(tag);
-  return index >= 0 ? $("tagbar").children[index] : null;
-}
-
-function showPopover(tag, anchor) {
-  const tab = activeTab();
-  const pop = $("pill-popover");
-  pop.innerHTML = "";
-
-  const title = el("div", "row");
-  title.appendChild(el("strong", null, tag.name));
-  title.appendChild(el("span", "dim", tag.unit));
-  pop.appendChild(title);
-
-  const mkRow = (label, control) => {
-    const row = el("div", "row");
-    row.appendChild(el("span", null, label));
-    row.appendChild(control);
-    pop.appendChild(row);
-  };
-
-  // Colour is pure presentation: nothing is refetched when it changes.
-  const swatches = el("div", "swatches");
-  const applyColor = (value) => {
-    setTagField(tab, tag, "color", value);
-    showPopover(tag, anchor); // move the marker onto the new colour
-  };
-  const taken = new Set(tab.tags.filter((t) => t !== tag).map((t) => t.color));
-  for (const color of PALETTE) {
-    const swatch = el("button", "swatch" + (color === tag.color ? " on" : "") +
-      (taken.has(color) ? " taken" : ""));
-    swatch.style.background = color;
-    swatch.title = taken.has(color) ? `${color} (used by another tag)` : color;
-    swatch.addEventListener("click", () => applyColor(color));
-    swatches.appendChild(swatch);
-  }
-  mkRow("Colour", swatches);
-
-  const custom = el("input");
-  custom.type = "color";
-  custom.value = tag.color || PALETTE[0];
-  custom.title = "Any colour outside the palette";
-  custom.addEventListener("change", () => applyColor(custom.value));
-  mkRow("Custom", custom);
-
-  // Maps cost a server call per tag, so they are looked up when first needed.
-  if (!tag.maps.length && !tag._mapsChecked) {
-    tag._mapsChecked = true;
-    apiGetMaps(tag.name).then((maps) => {
-      if (maps.length) {
-        tag.maps = maps;
-        // Sources that don't report units up front (Aspen) supply them here.
-        const current = maps.find((m) => m.name === (tag.map || maps[0].name));
-        if (!tag.unit) {
-          if (current && current.unit) {
-            tag.unit = current.unit;
-            renderTags();
-          } else {
-            ensureUnit(tab, tag);
-          }
-        }
-        saveState();
-        if (!pop.classList.contains("hidden")) showPopover(tag, anchor);
-      }
-    }).catch(() => {});
-  }
-
-  // Map selection (IP21 record map, e.g. CA_I OUTPUT)
-  if (tag.maps.length > 1) {
-    const select = el("select");
-    const favored = tag.maps.filter((m) => favoriteMaps.includes(m.name));
-    const mkOption = (m) => {
-      const opt = el("option", null, m.name);
-      opt.value = m.name;
-      return opt;
-    };
-    if (favored.length && favored.length < tag.maps.length) {
-      // Favourites first, without touching tag.maps itself.
-      const favGroup = document.createElement("optgroup");
-      favGroup.label = "Favourites";
-      for (const m of orderedMaps(favored)) favGroup.appendChild(mkOption(m));
-      select.appendChild(favGroup);
-      const restGroup = document.createElement("optgroup");
-      restGroup.label = "All maps";
-      for (const m of tag.maps) {
-        if (!favoriteMaps.includes(m.name)) restGroup.appendChild(mkOption(m));
-      }
-      select.appendChild(restGroup);
-    } else {
-      for (const m of tag.maps) select.appendChild(mkOption(m));
-    }
-    const selected = tag.map || tag.maps[0].name;
-    select.value = selected;
-    select.addEventListener("change", () => setTagField(tab, tag, "map", select.value));
-
-    // Star the selected map so it sorts first for every tag that has it.
-    const star = el("button", "star" + (favoriteMaps.includes(selected) ? " on" : ""),
-      favoriteMaps.includes(selected) ? "\u2605" : "\u2606");
-    star.title = "Favourite maps sort first everywhere, and are stored in the server's env file";
-    star.addEventListener("click", async () => {
-      const names = favoriteMaps.includes(selected)
-        ? favoriteMaps.filter((n) => n !== selected)
-        : [...favoriteMaps, selected];
-      if (await saveFavorites(names)) showPopover(tag, anchor);
-    });
-
-    const wrap = el("span", "map-row");
-    wrap.appendChild(select);
-    wrap.appendChild(star);
-    mkRow("Map", wrap);
-  } else if (!tag.maps.length) {
-    // Live Aspen source does not list maps: free-text entry.
-    const input = el("input");
-    input.type = "text";
-    input.placeholder = "default map";
-    if (tag.map) input.value = tag.map;
-    input.addEventListener("change", () => setTagField(tab, tag, "map", input.value.trim()));
-    mkRow("Map", input);
-  }
-
-  // Sample type + aggregate interval (individual per tag)
-  const sampleSel = el("select");
-  for (const s of SAMPLES) {
-    const opt = el("option", null, s.label);
-    opt.value = s.value;
-    sampleSel.appendChild(opt);
-  }
-  sampleSel.value = tag.sample;
-  sampleSel.addEventListener("change", () =>
-    setTagField(tab, tag, "sample", sampleSel.value));
-  mkRow("Sampling", sampleSel);
-
-  const intervalSel = el("select");
-  for (const item of INTERVALS) {
-    const opt = el("option", null, item.label);
-    opt.value = item.value;
-    intervalSel.appendChild(opt);
-  }
-  intervalSel.value = tag.interval;
-  intervalSel.addEventListener("change", () =>
-    setTagField(tab, tag, "interval", intervalSel.value));
-  mkRow("Interval", intervalSel);
-
-  const stepCb = el("input");
-  stepCb.type = "checkbox";
-  stepCb.checked = !!tag.step;
-  stepCb.addEventListener("change", () =>
-    setTagField(tab, tag, "step", stepCb.checked));
-  mkRow("Stepped", stepCb);
-
-  const mkNum = (label, key) => {
-    const input = el("input");
-    input.type = "number";
-    input.step = "any";
-    input.placeholder = "auto";
-    if (tag[key] != null) input.value = tag[key];
-    input.addEventListener("change", () =>
-      setTagField(tab, tag, key, parseFloat(input.value)));
-    mkRow(label, input);
-  };
-  mkNum("Scale min", "min");
-  mkNum("Scale max", "max");
-
-  const auto = el("button", null, "Auto scale");
-  auto.addEventListener("click", () => {
-    autoScale(tab, tag);
-    hidePopover();
-  });
-  pop.appendChild(auto);
-
-  const anchorEl = anchor && anchor.isConnected ? anchor : pillFor(tag);
-  if (!anchorEl) { hidePopover(); return; }
-  const rect = anchorEl.getBoundingClientRect();
-  pop.style.left = `${Math.min(rect.left, window.innerWidth - 230)}px`;
-  pop.style.top = `${rect.bottom + 6}px`;
-  pop.classList.remove("hidden");
 }
 
 /* -- tag settings table --------------------------------------------------- */
@@ -2129,6 +1943,27 @@ function beginTableResize(e) {
   e.target.addEventListener("pointerup", onUp);
 }
 
+// The gear on a pill is now a way into the table rather than a popover of its
+// own: open it if it is shut, put the row in view, and start the caret on the
+// first setting that is actually worth changing.
+function openTagTable(tag) {
+  const tab = activeTab();
+  if (!tab.tagTable) {
+    tab.tagTable = true;
+    renderToolbar();
+    renderTagTable();
+    saveState();
+  }
+  const row = tagRowEls.get(tag.uid);
+  if (row) {
+    row.scrollIntoView({ block: "nearest" });
+    row.classList.remove("flash");
+    void row.offsetWidth; // restart the animation on a repeat click
+    row.classList.add("flash");
+  }
+  focusTagCell(tag.uid, "color");
+}
+
 function toggleTagTable() {
   const tab = activeTab();
   tab.tagTable = !tab.tagTable;
@@ -2207,17 +2042,9 @@ function setAxisOwner(tab, uid) {
   saveState();
 }
 
-function hidePopover() { $("pill-popover").classList.add("hidden"); }
-
 document.addEventListener("pointerdown", (e) => {
-  const pop = $("pill-popover");
-  if (!pop.classList.contains("hidden") && !pop.contains(e.target) &&
-      !e.target.closest(".pill")) {
-    hidePopover();
-  }
   const menu = $("context-menu");
-  if (!menu.classList.contains("hidden") && !menu.contains(e.target) &&
-      !e.target.closest(".pill")) {
+  if (!menu.classList.contains("hidden") && !menu.contains(e.target)) {
     hideContextMenu();
   }
 });
@@ -3377,7 +3204,6 @@ function initToolbar() {
     if (typing) return;
     if ($("open-dialog").open || $("save-dialog").open) return; // dialogs close themselves
     if (!$("context-menu").classList.contains("hidden")) { hideContextMenu(); return; }
-    if (!$("pill-popover").classList.contains("hidden")) { hidePopover(); return; }
     popHistory();
   });
 }

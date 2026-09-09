@@ -223,12 +223,14 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   gap: 8px;
   width: 210px;
 }
-.popover .row { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
-.popover input[type="number"] { width: 110px; }
-.popover select, .popover input[type="text"] { width: 130px; }
-/* Twelve palette swatches plus the custom picker, two rows of six, lined up
-   with the 130px selects beside them. */
-.popover .swatches { display: flex; flex-wrap: wrap; gap: 4px; width: 130px; }
+/* Twelve palette swatches, two rows of six, above the custom picker. */
+.popover .swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 140px;
+  padding: 3px;
+}
 .popover .swatch {
   width: 18px;
   height: 18px;
@@ -239,30 +241,15 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 }
 .popover .swatch.taken { opacity: 0.4; }
 .popover .swatch.on { outline: 2px solid #e8eaf0; outline-offset: 1px; }
-/* Sized like the selects beside it, so it reads as a control rather than a
-   thirteenth swatch orphaned on its own row. */
 .popover input[type="color"] {
-  width: 130px;
-  height: 22px;
+  width: 60px;
+  height: 20px;
   padding: 1px;
   background: none;
   border: 1px solid var(--border);
   border-radius: 4px;
   cursor: pointer;
 }
-.popover .map-row { display: flex; align-items: center; gap: 6px; }
-.popover .map-row select { width: 130px; }
-.popover .star {
-  border: none;
-  background: none;
-  padding: 0 2px;
-  font-size: 14px;
-  line-height: 1;
-  color: var(--muted);
-}
-.popover .star:hover { color: #ffd54f; }
-.popover .star.on { color: #ffd54f; }
-.popover .danger { color: #e57373; }
 
 .popover.menu { width: max-content; min-width: 190px; padding: 5px; gap: 0; }
 .popover.menu .menu-item {
@@ -494,6 +481,14 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   background: var(--accent);
   pointer-events: none;
 }
+/* The gear on a pill jumps here; a table of forty rows needs the eye led to
+   the right one. */
+@keyframes tag-row-flash {
+  from { background: rgba(79, 195, 247, 0.28); }
+  to { background: transparent; }
+}
+#tag-table .row.flash { animation: tag-row-flash 0.7s ease-out; }
+
 #tag-table .handle {
   cursor: grab;
   color: var(--muted);
