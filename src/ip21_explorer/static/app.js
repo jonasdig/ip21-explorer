@@ -1314,32 +1314,51 @@ async function assignFreeMap(tab, tag) {
   return "assigned";
 }
 
-// Places an already-built tag at the end of the tab, remapping it when it
-// would otherwise duplicate a trace. Returns false if it could not be added.
-async function insertTag(tab, tag, at) {
-  const duplicate = tab.tags.some((t) => reqName(t) === reqName(tag));
-  tag.color = nextColor(tab);
-  tab.tags.splice(at ?? tab.tags.length, 0, tag);
-  if (!tab.axisUid) tab.axisUid = tag.uid;
-  let outcome = "assigned";
-  if (duplicate) {
-    outcome = await assignFreeMap(tab, tag);
-    if (outcome === "exhausted") {
-      showError(`${tag.name} is already plotted with every map`);
-      tab.tags = tab.tags.filter((t) => t !== tag);
-      renderTags();
-      return false;
+// Places already-built tags in the tab, remapping any that would otherwise
+// duplicate a trace, and returns the ones that made it in.
+//
+// The batch is the primitive rather than the single insert because loadData()
+// groups tags by sample|interval and issues one request per group: adding N
+// tags one at a time would fire N loads and let the abort guard throw all but
+// the last away, which is pure waste against a slow historian.
+async function insertTags(tab, tags, at) {
+  const added = [], exhausted = [], unknown = [];
+  let index = at ?? tab.tags.length;
+  for (const tag of tags) {
+    // nextColor() and assignFreeMap() both read the current tab.tags, so each
+    // tag has to be in place before the next one picks a colour and a map.
+    const duplicate = tab.tags.some((t) => reqName(t) === reqName(tag));
+    tag.color = nextColor(tab);
+    tab.tags.splice(index++, 0, tag);
+    if (!tab.axisUid) tab.axisUid = tag.uid;
+    if (duplicate) {
+      const outcome = await assignFreeMap(tab, tag);
+      if (outcome === "exhausted") {
+        tab.tags.splice(--index, 1);
+        exhausted.push(tag.name);
+        continue;
+      }
+      if (outcome === "unknown") unknown.push(tag.name);
     }
+    added.push(tag);
   }
   renderTags();
-  loadData(tab);
-  saveState();
-  // No map list to choose from: open the settings so a map can be typed in.
-  if (outcome === "unknown") {
-    const pill = $("tagbar").children[tab.tags.indexOf(tag)];
-    if (pill) showPopover(tag, pill);
+  if (added.length) {
+    loadData(tab);
+    saveState();
   }
-  return true;
+  if (exhausted.length) {
+    showError(`${exhausted.join(", ")} already plotted with every map`);
+  }
+  // No map list to choose from, so one has to be typed into the tag table.
+  if (unknown.length) {
+    showNotice(`${unknown.join(", ")}: could not list record maps - pick one in the tag table`);
+  }
+  return added;
+}
+
+async function insertTag(tab, tag, at) {
+  return (await insertTags(tab, [tag], at)).length > 0;
 }
 
 async function addTag(info) {
@@ -1355,22 +1374,28 @@ async function duplicateTag(uid) {
   await insertTag(tab, copy, tab.tags.indexOf(src) + 1);
 }
 
-function removeTag(uid) {
-  const tab = activeTab();
-  const tag = byUid(tab, uid);
-  if (!tag) return;
-  tab.tags = tab.tags.filter((t) => t.uid !== uid);
-  if (tab.axisUid === uid) tab.axisUid = tab.tags.length ? tab.tags[0].uid : null;
+function removeTags(tab, uids) {
+  const dropped = new Set(uids);
+  const gone = tab.tags.filter((t) => dropped.has(t.uid));
+  if (!gone.length) return;
+  tab.tags = tab.tags.filter((t) => !dropped.has(t.uid));
+  if (dropped.has(tab.axisUid)) {
+    tab.axisUid = tab.tags.length ? tab.tags[0].uid : null;
+  }
   hidePopover();
   renderTags();
   const r = rt(tab);
   if (r.raw) { // drop locally, no refetch needed
-    delete r.raw[tag.uid];
+    for (const tag of gone) delete r.raw[tag.uid];
     rebuildJoined(tab, r);
   }
   renderChart();
   renderNavigator();
   saveState();
+}
+
+function removeTag(uid) {
+  removeTags(activeTab(), [uid]);
 }
 
 // The tag list will exist in two places - the pill strip and the settings
@@ -1793,6 +1818,7 @@ function copyTags(tags) {
 async function pasteTags(tags) {
   if (!tags || !tags.length) return;
   const tab = activeTab();
+  const built = [];
   for (const src of tags) {
     const tag = makeTag(src);
     tag.map = src.map ?? null;
@@ -1802,8 +1828,9 @@ async function pasteTags(tags) {
     tag.step = src.step === true;
     tag.sample = src.sample || "INT";
     tag.interval = src.interval || "auto";
-    await insertTag(tab, tag);
+    built.push(tag);
   }
+  await insertTags(tab, built);
 }
 
 async function pasteFromClipboard() {
