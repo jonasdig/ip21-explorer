@@ -432,6 +432,81 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   white-space: nowrap;
 }
 #tag-table .cell.name { font-weight: 600; }
+
+/* The global control reset is sized for the toolbar; a row of fifteen columns
+   needs every pixel back. */
+#tag-table .cell input, #tag-table .cell select, #tag-table .cell button {
+  padding: 0 3px;
+  height: 19px;
+  max-width: 100%;
+  font-size: 12px;
+}
+#tag-table .cell input[type="checkbox"], #tag-table .cell input[type="radio"] {
+  height: 13px;
+  width: 13px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+#tag-table .cell.min input, #tag-table .cell.max input {
+  width: 100%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#tag-table .cell.map { display: flex; gap: 3px; align-items: center; }
+#tag-table .cell.map select { flex: 1; min-width: 0; }
+#tag-table .cell.sample select, #tag-table .cell.interval select { width: 100%; }
+#tag-table .cell.color .swatch {
+  width: 18px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+#tag-table .cell .star {
+  flex: none;
+  width: 18px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 0;
+}
+#tag-table .cell .star.on { color: #ffd54f; }
+#tag-table .cell.auto button { color: var(--muted); }
+#tag-table .cell.remove .close {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 0;
+}
+#tag-table .cell.remove .close:hover { color: #e57373; }
+#tag-table .body { position: relative; }
+#tag-table .row.dragging {
+  opacity: 0.5;
+  background: var(--panel-2);
+  position: relative;
+  z-index: 2;
+}
+#tag-table .drop-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+#tag-table .handle {
+  cursor: grab;
+  color: var(--muted);
+  user-select: none;
+  letter-spacing: -1px;
+}
+/* Dense controls need a focus ring of their own: the default is invisible at
+   this size, and the whole point of the table is keyboard editing. */
+#tag-table .cell :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: 3px;
+}
 #tag-table .cell.unit, #tag-table .cell.desc { color: var(--muted); }
 #tag-table .body.empty::before {
   content: "No tags - search above to add some.";

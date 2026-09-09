@@ -1729,28 +1729,383 @@ function renderTagTable() {
   body.classList.toggle("empty", !tab.tags.length);
 }
 
-function buildTagRow(uid) {
-  const row = el("div", "row");
-  row.dataset.uid = uid;
-  row.style.gridTemplateColumns = TAG_COLUMNS.map((c) => c.width).join(" ");
-  for (const col of TAG_COLUMNS) {
-    const cell = el("span", `cell ${col.key}`);
-    row.appendChild(cell);
-  }
-  return row;
-}
-
 function cellOf(row, key) {
   return row.children[TAG_COLUMNS.findIndex((c) => c.key === key)];
 }
 
+// Cells and their listeners are built exactly once per tag. Listeners close
+// over the uid and look the tag up when they fire, so a row survives anything
+// that reorders or replaces the tag objects.
+function buildTagRow(uid) {
+  const row = el("div", "row");
+  row.dataset.uid = uid;
+  row.style.gridTemplateColumns = TAG_COLUMNS.map((c) => c.width).join(" ");
+  const tagOf = () => byUid(activeTab(), uid);
+
+  for (const col of TAG_COLUMNS) {
+    const cell = el("span", `cell ${col.key}`);
+    row.appendChild(cell);
+  }
+
+  const mark = (control, key) => {
+    control.dataset.uid = uid;
+    control.dataset.col = key;
+    return control;
+  };
+
+  const grip = el("span", "handle", "⁙");
+  grip.title = "Drag to reorder (or Alt+Up / Alt+Down from any cell)";
+  grip.addEventListener("pointerdown", (ev) => beginRowDrag(ev, uid));
+  cellOf(row, "grip").appendChild(grip);
+
+  const visible = el("input");
+  visible.type = "checkbox";
+  visible.title = "Show this tag on the plot";
+  visible.addEventListener("change", () =>
+    setTagField(activeTab(), tagOf(), "visible", visible.checked));
+  cellOf(row, "visible").appendChild(mark(visible, "visible"));
+
+  const axis = el("input");
+  axis.type = "radio";
+  axis.title = "Use this tag's scale for the gridlines";
+  axis.addEventListener("change", () => {
+    if (axis.checked) setAxisOwner(activeTab(), uid);
+  });
+  cellOf(row, "axis").appendChild(mark(axis, "axis"));
+
+  const color = el("button", "swatch");
+  color.title = "Trend colour";
+  color.addEventListener("click", () =>
+    openSwatchMenu(color, activeTab(), tagOf()));
+  cellOf(row, "color").appendChild(mark(color, "color"));
+
+  const sample = el("select");
+  sample.title = "Sampling type";
+  for (const s of SAMPLES) {
+    const opt = el("option", null, s.label);
+    opt.value = s.value;
+    sample.appendChild(opt);
+  }
+  sample.addEventListener("change", () =>
+    setTagField(activeTab(), tagOf(), "sample", sample.value));
+  cellOf(row, "sample").appendChild(mark(sample, "sample"));
+
+  const interval = el("select");
+  interval.title = "Aggregate interval";
+  for (const item of INTERVALS) {
+    const opt = el("option", null, item.label);
+    opt.value = item.value;
+    interval.appendChild(opt);
+  }
+  interval.addEventListener("change", () =>
+    setTagField(activeTab(), tagOf(), "interval", interval.value));
+  cellOf(row, "interval").appendChild(mark(interval, "interval"));
+
+  const step = el("input");
+  step.type = "checkbox";
+  step.title = "Hold the last value instead of drawing a line between samples";
+  step.addEventListener("change", () =>
+    setTagField(activeTab(), tagOf(), "step", step.checked));
+  cellOf(row, "step").appendChild(mark(step, "step"));
+
+  // Text rather than number: a number input steals ArrowUp/Down to step its
+  // value, and those keys move between rows here.
+  for (const key of ["min", "max"]) {
+    const input = el("input");
+    input.type = "text";
+    input.inputMode = "decimal";
+    input.placeholder = "auto";
+    input.title = `Scale ${key} - leave empty for auto`;
+    input.addEventListener("change", () => commitScale(tagOf(), key, input));
+    cellOf(row, key).appendChild(mark(input, key));
+  }
+
+  // Not the word "auto": it would sit right beside two fields whose own
+  // placeholder is already "auto", and read as a third one.
+  const auto = el("button", null, "\u21ba");
+  auto.title = "Back to an automatic scale";
+  auto.addEventListener("click", () => autoScale(activeTab(), tagOf()));
+  cellOf(row, "auto").appendChild(mark(auto, "auto"));
+
+  const remove = el("button", "close", "×");
+  remove.title = "Remove tag";
+  remove.addEventListener("click", () => removeTag(uid));
+  cellOf(row, "remove").appendChild(mark(remove, "remove"));
+
+  return row;
+}
+
+// Writing the scale has to be idempotent: a keyboard move commits before it
+// leaves the cell, and the browser then fires change on the way out anyway.
+function commitScale(tag, key, input) {
+  if (!tag) return;
+  const text = input.value.trim();
+  const value = text === "" ? null : parseFloat(text);
+  const next = Number.isFinite(value) ? value : null;
+  if (next === tag[key]) return;
+  setTagField(activeTab(), tag, key, next);
+}
+
 function updateTagRow(tab, tag, row) {
+  const busy = (control) => control === document.activeElement;
+  const set = (key, fn) => {
+    const control = cellOf(row, key).firstElementChild;
+    // Never rewrite the control under the caret: it would lose the edit.
+    if (control && !busy(control)) fn(control);
+  };
+
   row.classList.toggle("hidden-tag", tag.visible === false);
-  cellOf(row, "name").textContent = tag.name + (tag.map ? `;${tag.map}` : "");
+  set("visible", (c) => { c.checked = tag.visible !== false; });
+  set("axis", (c) => { c.checked = tab.axisUid === tag.uid; c.name = `axis-owner-${tab.id}`; });
+  set("color", (c) => { c.style.background = tag.color || "transparent"; });
+  set("sample", (c) => { c.value = tag.sample; });
+  set("interval", (c) => { c.value = tag.interval; });
+  set("step", (c) => { c.checked = !!tag.step; });
+  set("min", (c) => { c.value = tag.min == null ? "" : tag.min; });
+  set("max", (c) => { c.value = tag.max == null ? "" : tag.max; });
+
+  const name = cellOf(row, "name");
+  name.textContent = tagDisplay(tab, tag);
+  name.title = tag.description ? `${tag.name} - ${tag.description}` : tag.name;
   cellOf(row, "unit").textContent = tag.unit || "";
   const desc = cellOf(row, "desc");
   desc.textContent = tag.description || "";
   desc.title = tag.description || "";
+
+  updateMapCell(tab, tag, cellOf(row, "map"), row.dataset.uid);
+}
+
+// The map list arrives late (one request per tag) and the favourite order can
+// change under it, so the options are rebuilt only when they would differ.
+function updateMapCell(tab, tag, cell, uid) {
+  ensureMaps(tab, tag);
+
+  if (!tag.maps.length) {
+    // A source that cannot list maps (live Aspen): type one in.
+    let input = cell.querySelector("input");
+    if (!input) {
+      cell.innerHTML = "";
+      input = el("input");
+      input.type = "text";
+      input.placeholder = "default map";
+      input.dataset.uid = uid;
+      input.dataset.col = "map";
+      input.addEventListener("change", () =>
+        setTagField(activeTab(), byUid(activeTab(), uid), "map", input.value.trim()));
+      cell.appendChild(input);
+    }
+    if (input !== document.activeElement) input.value = tag.map || "";
+    return;
+  }
+
+  const selected = tag.map || tag.maps[0].name;
+  const signature = `${tag.maps.map((m) => m.name).join(",")}|${favoriteMaps.join(",")}`;
+  let select = cell.querySelector("select");
+  if (!select || select.dataset.signature !== signature) {
+    if (select === document.activeElement) return; // rebuilding would drop the menu
+    cell.innerHTML = "";
+    select = el("select");
+    select.dataset.signature = signature;
+    select.dataset.uid = uid;
+    select.dataset.col = "map";
+    const mkOption = (m) => {
+      const opt = el("option", null, m.name);
+      opt.value = m.name;
+      return opt;
+    };
+    const favoured = tag.maps.filter((m) => favoriteMaps.includes(m.name));
+    if (favoured.length && favoured.length < tag.maps.length) {
+      // Favourites first, without touching tag.maps itself.
+      const favGroup = document.createElement("optgroup");
+      favGroup.label = "Favourites";
+      for (const m of orderedMaps(favoured)) favGroup.appendChild(mkOption(m));
+      select.appendChild(favGroup);
+      const restGroup = document.createElement("optgroup");
+      restGroup.label = "All maps";
+      for (const m of tag.maps) {
+        if (!favoriteMaps.includes(m.name)) restGroup.appendChild(mkOption(m));
+      }
+      select.appendChild(restGroup);
+    } else {
+      for (const m of tag.maps) select.appendChild(mkOption(m));
+    }
+    select.addEventListener("change", () =>
+      setTagField(activeTab(), byUid(activeTab(), uid), "map", select.value));
+    cell.appendChild(select);
+
+    // Starring sorts a map first for every tag that has it, so the cell has to
+    // be rebuilt afterwards - the signature above sees to that.
+    const star = el("button", "star");
+    star.dataset.uid = uid;
+    star.dataset.col = "star";
+    star.title = "Favourite maps sort first everywhere, and are stored in the server's env file";
+    star.addEventListener("click", async () => {
+      const current = select.value;
+      const names = favoriteMaps.includes(current)
+        ? favoriteMaps.filter((n) => n !== current)
+        : [...favoriteMaps, current];
+      if (await saveFavorites(names)) renderTags();
+    });
+    cell.appendChild(star);
+  }
+  if (select !== document.activeElement) select.value = selected;
+  const star = cell.querySelector(".star");
+  if (star) {
+    const on = favoriteMaps.includes(selected);
+    star.classList.toggle("on", on);
+    star.textContent = on ? "★" : "☆";
+  }
+}
+
+// Maps cost a request per tag, so they are fetched the first time a row that
+// can show them is drawn.
+function ensureMaps(tab, tag) {
+  if (tag.maps.length || tag._mapsChecked) return;
+  tag._mapsChecked = true;
+  apiGetMaps(tag.name).then((maps) => {
+    if (!maps.length) return;
+    tag.maps = maps;
+    // Sources that don't report units up front (Aspen) supply them here.
+    const current = maps.find((m) => m.name === (tag.map || maps[0].name));
+    if (!tag.unit) {
+      if (current && current.unit) tag.unit = current.unit;
+      else ensureUnit(tab, tag);
+    }
+    saveState();
+    renderTags();
+  }).catch(() => {});
+}
+
+// Puts the caret back where the user was, addressed by tag and column rather
+// than by any element that a re-render might have replaced.
+function focusTagCell(uid, col) {
+  const control = $("tag-table").querySelector(`[data-uid="${uid}"][data-col="${col}"]`);
+  if (control) control.focus();
+  return control;
+}
+
+/* -- row reordering ------------------------------------------------------- */
+
+// Tag order decides how the stacked axis gutter piles its values and the order
+// of the scooter readouts, so it is worth being able to group related tags.
+function moveTag(tab, from, to) {
+  if (to < 0 || to >= tab.tags.length || from === to) return;
+  const [tag] = tab.tags.splice(from, 1);
+  tab.tags.splice(to, 0, tag);
+  // r.tagOrder and the joined data columns are derived from tab.tags, so
+  // without this the chart would keep drawing each series against its old
+  // column - every trace showing the wrong tag's data.
+  rebuildJoined(tab, rt(tab));
+  renderTags();
+  renderChart();
+  // gridTag() and navTag() fall back to the first tag when axisUid does not
+  // resolve, so reordering can hand the grid and the band to someone else.
+  ensureNavData(tab);
+  renderNavigator();
+  saveState();
+}
+
+// Pointer events rather than HTML5 drag-and-drop: the app already drags
+// scooters, readout boxes and the navigator window this way, and draggable
+// rows full of inputs behave badly. The DOM is left alone until the drop, so
+// the row reconciler and the hit test stay out of each other's way.
+function beginRowDrag(e, uid) {
+  const body = $("tag-table").querySelector(".body");
+  const rows = [...body.querySelectorAll(".row")];
+  const from = rows.findIndex((r) => r.dataset.uid === uid);
+  if (from < 0) return;
+  const row = rows[from];
+  const height = row.getBoundingClientRect().height || 26;
+
+  e.preventDefault();
+  e.target.setPointerCapture(e.pointerId);
+  row.classList.add("dragging");
+  const line = el("div", "drop-line");
+  body.appendChild(line);
+
+  const startY = e.clientY;
+  let to = from;
+
+  const place = (clientY) => {
+    const box = body.getBoundingClientRect();
+    const offset = clientY - box.top + body.scrollTop;
+    to = Math.max(0, Math.min(rows.length - 1, Math.floor(offset / height)));
+    row.style.transform = `translateY(${clientY - startY}px)`;
+    line.style.top = `${(to > from ? to + 1 : to) * height}px`;
+    // Drag past the edge and the list follows.
+    if (clientY < box.top + 24) body.scrollTop -= 8;
+    else if (clientY > box.bottom - 24) body.scrollTop += 8;
+  };
+  place(e.clientY);
+
+  const onMove = (ev) => place(ev.clientY);
+  const onUp = () => {
+    e.target.removeEventListener("pointermove", onMove);
+    e.target.removeEventListener("pointerup", onUp);
+    row.classList.remove("dragging");
+    row.style.transform = "";
+    line.remove();
+    moveTag(activeTab(), from, to);
+  };
+  e.target.addEventListener("pointermove", onMove);
+  e.target.addEventListener("pointerup", onUp);
+}
+
+/* -- table keyboard navigation -------------------------------------------- */
+
+// The global shortcuts must stand aside for an edit in progress. Form controls
+// were always exempt; the table adds buttons - colour, star, auto, remove -
+// where Ctrl+C would otherwise copy every tag instead of the selection.
+function isEditingContext(el) {
+  if (!el) return false;
+  return ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) || !!el.closest("#tag-table");
+}
+
+// Tab and Shift+Tab are left to the browser: its own order already runs left
+// to right along a row and on into the next, skips the read-only spans, and
+// lets focus out of the panel at either end. Enter and the arrows are what
+// move between rows.
+function onTagTableKey(e) {
+  const cell = e.target.closest("[data-col]");
+  if (!cell) return;
+
+  if (e.key === "Escape") {
+    // Without this it reaches the global handler, which reads Escape as
+    // "zoom back" and would move the chart out from under the edit.
+    if (!$("context-menu").classList.contains("hidden")) return;
+    e.stopPropagation();
+    cell.blur();
+    return;
+  }
+
+  const vertical = e.key === "Enter" || e.key === "ArrowDown" || e.key === "ArrowUp";
+  if (!vertical) return;
+
+  const rows = [...$("tag-table").querySelectorAll(".row")];
+  const index = rows.indexOf(cell.closest(".row"));
+  if (index < 0) return;
+
+  if (e.altKey && e.key !== "Enter") {
+    // Alt+Arrow moves the row itself - the keyboard equivalent of dragging.
+    e.preventDefault();
+    e.stopPropagation();
+    moveTag(activeTab(), index, index + (e.key === "ArrowDown" ? 1 : -1));
+    focusTagCell(cell.dataset.uid, cell.dataset.col);
+    return;
+  }
+
+  e.preventDefault();
+  e.stopPropagation();
+  // keydown runs before change, so an edit in progress has to be banked before
+  // the caret leaves - otherwise the move would discard it.
+  if (cell.tagName === "INPUT" && cell.type === "text") {
+    cell.dispatchEvent(new Event("change"));
+  }
+  const down = e.key === "ArrowUp" || (e.key === "Enter" && e.shiftKey) ? -1 : 1;
+  const target = rows[Math.max(0, Math.min(rows.length - 1, index + down))];
+  if (!target || target === rows[index]) return;
+  const next = focusTagCell(target.dataset.uid, cell.dataset.col);
+  if (next && next.select) next.select();
 }
 
 // Dragging the top edge trades chart height for table height. The chart is
@@ -1883,14 +2238,58 @@ function openMenu(e, items) {
     item.addEventListener("click", () => { hideContextMenu(); action(); });
     menu.appendChild(item);
   }
+  placeMenu(menu, e.clientX, e.clientY);
+}
+
+// Kept apart from openMenu so a menu opened from a cell can be placed under
+// the control that opened it, where there is no pointer position to use.
+function placeMenu(menu, x, y) {
   // Measure the menu while invisible so the clamp tracks its real size.
   menu.style.visibility = "hidden";
   menu.classList.remove("hidden");
-  const left = Math.min(e.clientX, window.innerWidth - menu.offsetWidth - 8);
-  const top = Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 8);
+  const left = Math.min(x, window.innerWidth - menu.offsetWidth - 8);
+  const top = Math.min(y, window.innerHeight - menu.offsetHeight - 8);
   menu.style.left = `${Math.max(0, left)}px`;
   menu.style.top = `${Math.max(0, top)}px`;
   menu.style.visibility = "";
+}
+
+// The palette, as a menu hung under a cell. A select cannot show colours, so
+// this is the one table cell that needs a menu of its own.
+function openSwatchMenu(anchor, tab, tag) {
+  const menu = $("context-menu");
+  menu.innerHTML = "";
+  const grid = el("div", "swatches");
+  const taken = new Set(tab.tags.filter((t) => t !== tag).map((t) => t.color));
+  for (const color of PALETTE) {
+    const swatch = el("button", "swatch" + (color === tag.color ? " on" : "") +
+      (taken.has(color) ? " taken" : ""));
+    swatch.style.background = color;
+    swatch.title = taken.has(color) ? `${color} (used by another tag)` : color;
+    swatch.addEventListener("click", () => {
+      hideContextMenu();
+      setTagField(tab, tag, "color", color);
+      focusTagCell(tag.uid, "color");
+    });
+    grid.appendChild(swatch);
+  }
+  menu.appendChild(grid);
+
+  const custom = el("div", "menu-item");
+  custom.appendChild(el("span", null, "Custom"));
+  const picker = el("input");
+  picker.type = "color";
+  picker.value = tag.color || PALETTE[0];
+  picker.addEventListener("change", () => {
+    hideContextMenu();
+    setTagField(tab, tag, "color", picker.value);
+    focusTagCell(tag.uid, "color");
+  });
+  custom.appendChild(picker);
+  menu.appendChild(custom);
+
+  const rect = anchor.getBoundingClientRect();
+  placeMenu(menu, rect.left, rect.bottom + 4);
 }
 
 function showContextMenu(e, tAtCursor) {
@@ -2952,6 +3351,7 @@ function initToolbar() {
   });
 
   $("table-toggle").addEventListener("click", toggleTagTable);
+  $("tag-table").addEventListener("keydown", onTagTableKey);
   $("tag-table").querySelector(".grip")
     .addEventListener("pointerdown", beginTableResize);
 
@@ -2961,15 +3361,13 @@ function initToolbar() {
   // A paste event carries the clipboard text without a permission prompt,
   // unlike navigator.clipboard.readText().
   document.addEventListener("paste", (e) => {
-    const active = document.activeElement;
-    if (active && ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName)) return;
+    if (isEditingContext(document.activeElement)) return;
     const tags = tagsFromClipText(e.clipboardData.getData("text") || "");
     if (tags) { e.preventDefault(); pasteTags(tags); }
   });
 
   document.addEventListener("keydown", (e) => {
-    const active = document.activeElement;
-    const typing = active && ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName);
+    const typing = isEditingContext(document.activeElement);
     if ((e.ctrlKey || e.metaKey) && e.key === "c" && !typing &&
         !window.getSelection().toString()) {
       copyTags(activeTab().tags);
