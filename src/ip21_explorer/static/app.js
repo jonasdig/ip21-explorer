@@ -100,6 +100,7 @@ function newTab(name) {
     labels: [],               // free-text labels for grouping saved plots
     scooters: [],             // {t: epoch seconds, dy: readout box y-offset px}
     live: true,               // follow "now", refreshing every LIVE_INTERVAL_MS
+    tagTable: false,          // settings table docked under the chart
     history: [],              // previous ranges, for zoom-back (not persisted)
   };
 }
@@ -146,6 +147,7 @@ function migrateTab(tab, oldState) {
   // as default ("all" is the stored name for side-by-side from now on).
   tab.axisMode = !tab.axisMode || tab.axisMode === "multi" ? "stacked" : tab.axisMode;
   tab.history = [];
+  tab.tagTable = tab.tagTable === true;
   for (const tag of tab.tags) {
     tag.uid = tag.uid || newUid();
     tag.name = normalizeTagName(tag.name);
@@ -166,7 +168,8 @@ function migrateTab(tab, oldState) {
 function defaultState() {
   // labelMode is a display preference for every tab ("tag" | "desc" | "both"),
   // deliberately not part of a plot config so a shared plot cannot change it.
-  state = { tabs: [], activeTabId: null, labelMode: "tag", navigator: true };
+  state = { tabs: [], activeTabId: null, labelMode: "tag", navigator: true,
+            tagTableHeight: TAG_TABLE_DEFAULT_H };
   const tab = newTab("Plot 1");
   state.tabs.push(tab);
   state.activeTabId = tab.id;
@@ -181,6 +184,7 @@ function loadState() {
     state = parsed;
     if (!LABEL_MODES[state.labelMode]) state.labelMode = "tag";
     if (typeof state.navigator !== "boolean") state.navigator = true;
+    state.tagTableHeight = clampTableHeight(state.tagTableHeight);
     for (const tab of state.tabs) migrateTab(tab, parsed);
     delete state.linkRanges;
     if (!state.tabs.some((t) => t.id === state.activeTabId)) {
@@ -1398,11 +1402,11 @@ function removeTag(uid) {
   removeTags(activeTab(), [uid]);
 }
 
-// The tag list will exist in two places - the pill strip and the settings
-// table - and they must never disagree, so nothing renders one without the
-// other. renderTagTable() joins this in step 4.
+// The tag list lives in two places - the pill strip and the settings table -
+// and they must never disagree, so nothing renders one without the other.
 function renderTags() {
   renderTagbar();
+  renderTagTable();
 }
 
 function renderTagbar() {
@@ -1635,6 +1639,147 @@ function showPopover(tag, anchor) {
   pop.style.left = `${Math.min(rect.left, window.innerWidth - 230)}px`;
   pop.style.top = `${rect.bottom + 6}px`;
   pop.classList.remove("hidden");
+}
+
+/* -- tag settings table --------------------------------------------------- */
+
+// A row is a grid of its own rather than one grid for the whole table, so a
+// row can carry hover, a border and a drag ghost. The columns still line up
+// because every row uses this same template.
+const TAG_COLUMNS = [
+  { key: "grip", label: "", width: "16px" },
+  { key: "visible", label: "", width: "22px" },
+  { key: "axis", label: "Grid", width: "32px" },
+  { key: "color", label: "", width: "24px" },
+  { key: "name", label: "Tag", width: "minmax(110px, 1fr)" },
+  { key: "map", label: "Map", width: "142px" },
+  { key: "sample", label: "Type", width: "72px" },
+  { key: "interval", label: "Period", width: "80px" },
+  { key: "step", label: "Step", width: "36px" },
+  { key: "min", label: "Min", width: "68px" },
+  { key: "max", label: "Max", width: "68px" },
+  { key: "auto", label: "", width: "38px" },
+  { key: "unit", label: "Unit", width: "56px" },
+  { key: "desc", label: "Description", width: "minmax(120px, 2fr)" },
+  { key: "remove", label: "", width: "24px" },
+];
+
+const TAG_TABLE_DEFAULT_H = 200;
+const TAG_TABLE_MIN_H = 96;
+
+// Never so tall that the chart it is docked under has nothing left.
+function clampTableHeight(h) {
+  const max = Math.max(TAG_TABLE_MIN_H, window.innerHeight - 240);
+  return Math.min(max, Math.max(TAG_TABLE_MIN_H, Number(h) || TAG_TABLE_DEFAULT_H));
+}
+
+// Rows are kept and patched rather than rebuilt, so an edit in progress keeps
+// its caret, its selection and its undo history. tagRowEls maps uid -> row.
+let tagRowEls = new Map();
+let tagRowsTabId = null;
+
+function renderTagTable() {
+  const panel = $("tag-table");
+  const tab = activeTab();
+  panel.classList.toggle("hidden", !tab.tagTable);
+  // Closed is the common case and every setting change renders, so cost
+  // nothing while it is shut.
+  if (!tab.tagTable) {
+    tagRowEls.clear();
+    tagRowsTabId = null;
+    return;
+  }
+  panel.style.height = `${clampTableHeight(state.tagTableHeight)}px`;
+
+  const head = panel.querySelector(".head");
+  if (!head.childElementCount) {
+    head.style.gridTemplateColumns = TAG_COLUMNS.map((c) => c.width).join(" ");
+    for (const col of TAG_COLUMNS) head.appendChild(el("span", null, col.label));
+  }
+
+  const body = panel.querySelector(".body");
+  // uids are unique per tab, so a tab switch starts from a clean slate.
+  if (tagRowsTabId !== tab.id) {
+    body.innerHTML = "";
+    tagRowEls.clear();
+    tagRowsTabId = tab.id;
+  }
+
+  const live = new Set(tab.tags.map((t) => t.uid));
+  for (const [uid, row] of tagRowEls) {
+    if (!live.has(uid)) { row.remove(); tagRowEls.delete(uid); }
+  }
+
+  let previous = null;
+  for (const tag of tab.tags) {
+    let row = tagRowEls.get(tag.uid);
+    if (!row) {
+      row = buildTagRow(tag.uid);
+      tagRowEls.set(tag.uid, row);
+      body.appendChild(row);
+    }
+    // Moving a focused node blurs it in Chrome, so only touch the order when
+    // it actually differs - which is only just after a drag.
+    const expected = previous ? previous.nextSibling : body.firstChild;
+    if (row !== expected) body.insertBefore(row, expected);
+    previous = row;
+    updateTagRow(tab, tag, row);
+  }
+
+  body.classList.toggle("empty", !tab.tags.length);
+}
+
+function buildTagRow(uid) {
+  const row = el("div", "row");
+  row.dataset.uid = uid;
+  row.style.gridTemplateColumns = TAG_COLUMNS.map((c) => c.width).join(" ");
+  for (const col of TAG_COLUMNS) {
+    const cell = el("span", `cell ${col.key}`);
+    row.appendChild(cell);
+  }
+  return row;
+}
+
+function cellOf(row, key) {
+  return row.children[TAG_COLUMNS.findIndex((c) => c.key === key)];
+}
+
+function updateTagRow(tab, tag, row) {
+  row.classList.toggle("hidden-tag", tag.visible === false);
+  cellOf(row, "name").textContent = tag.name + (tag.map ? `;${tag.map}` : "");
+  cellOf(row, "unit").textContent = tag.unit || "";
+  const desc = cellOf(row, "desc");
+  desc.textContent = tag.description || "";
+  desc.title = tag.description || "";
+}
+
+// Dragging the top edge trades chart height for table height. The chart is
+// flex: 1 and gives the space up on its own; its ResizeObserver does the rest.
+function beginTableResize(e) {
+  const panel = $("tag-table");
+  e.preventDefault();
+  e.target.setPointerCapture(e.pointerId);
+  const startY = e.clientY;
+  const startH = panel.getBoundingClientRect().height;
+  const onMove = (ev) => {
+    state.tagTableHeight = clampTableHeight(startH + (startY - ev.clientY));
+    panel.style.height = `${state.tagTableHeight}px`;
+  };
+  const onUp = () => {
+    e.target.removeEventListener("pointermove", onMove);
+    e.target.removeEventListener("pointerup", onUp);
+    saveState();
+  };
+  e.target.addEventListener("pointermove", onMove);
+  e.target.addEventListener("pointerup", onUp);
+}
+
+function toggleTagTable() {
+  const tab = activeTab();
+  tab.tagTable = !tab.tagTable;
+  renderToolbar();
+  renderTagTable();
+  saveState();
 }
 
 /* -- tag settings --------------------------------------------------------- */
@@ -2355,6 +2500,7 @@ function renderToolbar() {
   $("axis-mode").textContent = axisModeLabels[tab.axisMode] || axisModeLabels.stacked;
   $("label-mode").textContent = (LABEL_MODES[state.labelMode] || LABEL_MODES.tag).label;
   $("nav-toggle").classList.toggle("active", !!state.navigator);
+  $("table-toggle").classList.toggle("active", !!tab.tagTable);
   $("link-ranges-cb").checked = !!tab.linked;
 }
 
@@ -2805,6 +2951,10 @@ function initToolbar() {
     addScooterAt((cur.start + cur.end) / 2);
   });
 
+  $("table-toggle").addEventListener("click", toggleTagTable);
+  $("tag-table").querySelector(".grip")
+    .addEventListener("pointerdown", beginTableResize);
+
   $("add-tab").addEventListener("click", () => addTab());
   $("link-ranges-cb").addEventListener("change", (e) => setLinked(e.target.checked));
 
@@ -2836,7 +2986,7 @@ function initToolbar() {
 
 /* -------------------------------------------------------------- save / open */
 
-const CONFIG_VERSION = 3;
+const CONFIG_VERSION = 4;
 
 // A complete snapshot of a plot: everything needed to recreate it exactly,
 // minus runtime-only identity (uid) and caches (_mapsChecked).
@@ -2853,6 +3003,7 @@ function tabToConfig(tab, name) {
     axisIndex: tab.tags.findIndex((t) => t.uid === tab.axisUid),
     linked: !!tab.linked,
     live: !!tab.live,
+    tagTable: !!tab.tagTable,
     scooters: (tab.scooters || []).map((sc) => ({ t: sc.t, dy: sc.dy || 0 })),
     range: tab.range.preset
       ? { preset: tab.range.preset }
@@ -2895,6 +3046,7 @@ function configToTab(name, config) {
   tab.labels = Array.isArray(config.labels) ? config.labels.slice() : [];
   tab.linked = config.linked === true;
   tab.live = config.live === true;
+  tab.tagTable = config.tagTable === true;
   tab.scooters = Array.isArray(config.scooters)
     ? config.scooters.filter((sc) => sc && typeof sc.t === "number")
         .map((sc) => ({ t: sc.t, dy: sc.dy || 0 }))

@@ -47,6 +47,8 @@
 
       <button id="nav-toggle" title="Show the navigator band under the chart">Nav</button>
 
+      <button id="table-toggle" title="Show a table of every tag's settings">Table</button>
+
       <button id="add-scooter" title="Add a value cursor (double-click the chart)">+ Scooter</button>
     </div>
 
@@ -60,6 +62,12 @@
     <div id="empty-hint">Search for tags above to add them to the plot.</div>
     <div id="error-box" class="hidden"></div>
   </main>
+
+  <section id="tag-table" class="hidden">
+    <div class="grip" title="Drag to resize"></div>
+    <div class="head"></div>
+    <div class="body"></div>
+  </section>
 
   <footer id="navigator">
     <canvas id="nav-canvas"></canvas>

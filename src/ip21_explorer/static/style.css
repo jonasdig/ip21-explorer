@@ -381,6 +381,65 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   vertical-align: bottom;
 }
 
+/* -- tag settings table --------------------------------------------------- */
+
+/* Docked between the chart and the navigator. #chart-wrap is flex: 1 and gives
+   the height up on its own, exactly as it does for the navigator. */
+#tag-table {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+#tag-table .grip {
+  flex: none;
+  height: 5px;
+  cursor: row-resize;
+  background: var(--panel-2);
+}
+#tag-table .grip:hover { background: var(--accent); }
+
+#tag-table .head, #tag-table .row {
+  display: grid;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  min-width: 900px;
+}
+#tag-table .head {
+  flex: none;
+  height: 22px;
+  color: var(--muted);
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+}
+#tag-table .body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+#tag-table .row {
+  height: 26px;
+  border-bottom: 1px solid rgba(46, 52, 66, 0.5);
+}
+#tag-table .row:hover { background: var(--panel-2); }
+#tag-table .row.hidden-tag { opacity: 0.45; }
+#tag-table .cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#tag-table .cell.name { font-weight: 600; }
+#tag-table .cell.unit, #tag-table .cell.desc { color: var(--muted); }
+#tag-table .body.empty::before {
+  content: "No tags - search above to add some.";
+  display: block;
+  padding: 10px;
+  color: var(--muted);
+}
+
 /* -- navigator ------------------------------------------------------------ */
 
 /* A fixed-height band below the chart; #chart-wrap has flex: 1 and gives up
