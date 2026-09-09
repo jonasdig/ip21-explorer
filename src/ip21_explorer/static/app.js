@@ -1226,7 +1226,7 @@ async function ensureUnit(tab, tag) {
   const unit = await apiGetUnit(reqName(tag)).catch(() => "");
   if (!unit || tag.unit) return;
   tag.unit = unit;
-  renderTagbar();
+  renderTags();
   positionScooters(); // readout boxes are built with the unit baked in
   saveState();
 }
@@ -1251,7 +1251,7 @@ async function fetchDescription(tab, name) {
     }
   }
   if (!filled) return;
-  renderTagbar();
+  renderTags();
   positionScooters();
   saveState();
 }
@@ -1327,11 +1327,11 @@ async function insertTag(tab, tag, at) {
     if (outcome === "exhausted") {
       showError(`${tag.name} is already plotted with every map`);
       tab.tags = tab.tags.filter((t) => t !== tag);
-      renderTagbar();
+      renderTags();
       return false;
     }
   }
-  renderTagbar();
+  renderTags();
   loadData(tab);
   saveState();
   // No map list to choose from: open the settings so a map can be typed in.
@@ -1362,7 +1362,7 @@ function removeTag(uid) {
   tab.tags = tab.tags.filter((t) => t.uid !== uid);
   if (tab.axisUid === uid) tab.axisUid = tab.tags.length ? tab.tags[0].uid : null;
   hidePopover();
-  renderTagbar();
+  renderTags();
   const r = rt(tab);
   if (r.raw) { // drop locally, no refetch needed
     delete r.raw[tag.uid];
@@ -1371,6 +1371,13 @@ function removeTag(uid) {
   renderChart();
   renderNavigator();
   saveState();
+}
+
+// The tag list will exist in two places - the pill strip and the settings
+// table - and they must never disagree, so nothing renders one without the
+// other. renderTagTable() joins this in step 4.
+function renderTags() {
+  renderTagbar();
 }
 
 function renderTagbar() {
@@ -1387,10 +1394,7 @@ function renderTagbar() {
     dot.style.background = tag.color;
     dot.addEventListener("click", (e) => {
       e.stopPropagation();
-      tag.visible = tag.visible === false;
-      renderTagbar();
-      renderChart();
-      saveState();
+      setTagField(tab, tag, "visible", tag.visible === false);
     });
     pill.appendChild(dot);
     pill.appendChild(el("span", "name", tagDisplay(tab, tag)));
@@ -1418,14 +1422,7 @@ function renderTagbar() {
       showPillMenu(e, tag);
     });
 
-    pill.addEventListener("click", () => {
-      tab.axisUid = tag.uid;
-      renderTagbar();
-      renderChart();
-      ensureNavData(tab); // the navigator follows the grid tag
-      renderNavigator();
-      saveState();
-    });
+    pill.addEventListener("click", () => setAxisOwner(tab, tag.uid));
     bar.appendChild(pill);
   }
 }
@@ -1461,10 +1458,7 @@ function showPopover(tag, anchor) {
   // Colour is pure presentation: nothing is refetched when it changes.
   const swatches = el("div", "swatches");
   const applyColor = (value) => {
-    tag.color = value;
-    renderTagbar();
-    renderChart();
-    saveState();
+    setTagField(tab, tag, "color", value);
     showPopover(tag, anchor); // move the marker onto the new colour
   };
   const taken = new Set(tab.tags.filter((t) => t !== tag).map((t) => t.color));
@@ -1496,7 +1490,7 @@ function showPopover(tag, anchor) {
         if (!tag.unit) {
           if (current && current.unit) {
             tag.unit = current.unit;
-            renderTagbar();
+            renderTags();
           } else {
             ensureUnit(tab, tag);
           }
@@ -1533,7 +1527,7 @@ function showPopover(tag, anchor) {
     }
     const selected = tag.map || tag.maps[0].name;
     select.value = selected;
-    select.addEventListener("change", () => setTagMap(tab, tag, select.value));
+    select.addEventListener("change", () => setTagField(tab, tag, "map", select.value));
 
     // Star the selected map so it sorts first for every tag that has it.
     const star = el("button", "star" + (favoriteMaps.includes(selected) ? " on" : ""),
@@ -1556,7 +1550,7 @@ function showPopover(tag, anchor) {
     input.type = "text";
     input.placeholder = "default map";
     if (tag.map) input.value = tag.map;
-    input.addEventListener("change", () => setTagMap(tab, tag, input.value.trim()));
+    input.addEventListener("change", () => setTagField(tab, tag, "map", input.value.trim()));
     mkRow("Map", input);
   }
 
@@ -1568,12 +1562,8 @@ function showPopover(tag, anchor) {
     sampleSel.appendChild(opt);
   }
   sampleSel.value = tag.sample;
-  sampleSel.addEventListener("change", () => {
-    tag.sample = sampleSel.value;
-    renderTagbar();
-    loadData(tab);
-    saveState();
-  });
+  sampleSel.addEventListener("change", () =>
+    setTagField(tab, tag, "sample", sampleSel.value));
   mkRow("Sampling", sampleSel);
 
   const intervalSel = el("select");
@@ -1583,24 +1573,15 @@ function showPopover(tag, anchor) {
     intervalSel.appendChild(opt);
   }
   intervalSel.value = tag.interval;
-  intervalSel.addEventListener("change", () => {
-    tag.interval = intervalSel.value;
-    enforceLiveGuard(tab); // a manual interval decides whether live is allowed
-    renderTagbar();
-    renderToolbar();
-    loadData(tab);
-    saveState();
-  });
+  intervalSel.addEventListener("change", () =>
+    setTagField(tab, tag, "interval", intervalSel.value));
   mkRow("Interval", intervalSel);
 
   const stepCb = el("input");
   stepCb.type = "checkbox";
   stepCb.checked = !!tag.step;
-  stepCb.addEventListener("change", () => {
-    tag.step = stepCb.checked;
-    renderChart();
-    saveState();
-  });
+  stepCb.addEventListener("change", () =>
+    setTagField(tab, tag, "step", stepCb.checked));
   mkRow("Stepped", stepCb);
 
   const mkNum = (label, key) => {
@@ -1609,13 +1590,8 @@ function showPopover(tag, anchor) {
     input.step = "any";
     input.placeholder = "auto";
     if (tag[key] != null) input.value = tag[key];
-    input.addEventListener("change", () => {
-      const v = parseFloat(input.value);
-      tag[key] = Number.isNaN(v) ? null : v;
-      renderTagbar();
-      renderChart();
-      saveState();
-    });
+    input.addEventListener("change", () =>
+      setTagField(tab, tag, key, parseFloat(input.value)));
     mkRow(label, input);
   };
   mkNum("Scale min", "min");
@@ -1623,11 +1599,7 @@ function showPopover(tag, anchor) {
 
   const auto = el("button", null, "Auto scale");
   auto.addEventListener("click", () => {
-    tag.min = null;
-    tag.max = null;
-    renderTagbar();
-    renderChart();
-    saveState();
+    autoScale(tab, tag);
     hidePopover();
   });
   pop.appendChild(auto);
@@ -1640,14 +1612,73 @@ function showPopover(tag, anchor) {
   pop.classList.remove("hidden");
 }
 
-function setTagMap(tab, tag, mapName) {
-  const defaultName = tag.maps.length ? tag.maps[0].name : "";
-  const newMap = !mapName || mapName === defaultName ? null : mapName;
-  tag.map = newMap;
-  applyMapUnit(tag, tag.maps.find((m) => m.name === (newMap || defaultName)));
-  ensureUnit(tab, tag);
-  renderTagbar();
-  loadData(tab);
+/* -- tag settings --------------------------------------------------------- */
+
+// Every tag setting goes through here, so the pills, the settings table and
+// anything else that edits a tag agree on what a change actually costs:
+// colour and scale only redraw, while sampling, interval and map mean a new
+// request to the historian.
+function setTagFields(tab, tag, patch) {
+  let chart = false, fetch = false, live = false, nav = false;
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === "visible") {
+      tag.visible = value !== false;
+      chart = true;
+    } else if (key === "color") {
+      tag.color = value;
+      // The navigator band draws from a snapshot of the colour, taken when its
+      // context was fetched, so a recolour has to be handed to it directly.
+      const r = rt(tab);
+      if (r.navTagUid === tag.uid) r.navColor = value;
+      chart = nav = true;
+    } else if (key === "step") {
+      tag.step = !!value;
+      chart = true;
+    } else if (key === "min" || key === "max") {
+      tag[key] = Number.isFinite(value) ? value : null;
+      chart = true;
+    } else if (key === "sample") {
+      tag.sample = value;
+      fetch = true;
+    } else if (key === "interval") {
+      tag.interval = normalizeInterval(value);
+      fetch = live = true;
+    } else if (key === "map") {
+      // maps[0] is the default and is stored as null, so the two spellings of
+      // "the default map" cannot read as two different traces.
+      const defaultName = tag.maps.length ? tag.maps[0].name : "";
+      tag.map = !value || value === defaultName ? null : value;
+      applyMapUnit(tag, tag.maps.find((m) => m.name === (tag.map || defaultName)));
+      ensureUnit(tab, tag);
+      fetch = true;
+    }
+  }
+  // A manually pinned interval decides whether live is allowed at all.
+  if (live) { enforceLiveGuard(tab); renderToolbar(); }
+  renderTags();
+  // Never both: a refetch leaves the old data on screen until the answer
+  // lands, which is what keeps a sampling change from flickering.
+  if (fetch) loadData(tab);
+  else if (chart) renderChart();
+  if (nav) renderNavigator();
+  saveState();
+}
+
+function setTagField(tab, tag, key, value) {
+  setTagFields(tab, tag, { [key]: value });
+}
+
+function autoScale(tab, tag) {
+  setTagFields(tab, tag, { min: null, max: null });
+}
+
+// Which tag owns the gridlines - and with them the navigator band.
+function setAxisOwner(tab, uid) {
+  tab.axisUid = uid;
+  renderTags();
+  renderChart();
+  ensureNavData(tab);
+  renderNavigator();
   saveState();
 }
 
@@ -2652,7 +2683,7 @@ function initToolbar() {
     state.labelMode = (LABEL_MODES[state.labelMode] || LABEL_MODES.tag).next;
     ensureDescriptions(activeTab()); // nothing was fetched while in tag mode
     renderToolbar();
-    renderTagbar();
+    renderTags();
     positionScooters();
     saveState();
   });
@@ -3110,7 +3141,7 @@ async function importPlotFile(file) {
 function renderAll() {
   renderTabs();
   renderToolbar();
-  renderTagbar();
+  renderTags();
   renderChart();
   renderNavigator();
 }
