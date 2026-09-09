@@ -150,6 +150,20 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .dropdown .item .unit { margin-left: auto; color: var(--muted); }
 .dropdown .none { padding: 6px 10px; color: var(--muted); }
 
+/* A tag already on the plot. The list stays open while tags are picked, so the
+   tick doubles as the control that takes one off again. */
+.dropdown .item.on .name { color: var(--accent); }
+.dropdown .item .mark { color: var(--accent); width: 8px; flex: none; }
+.dropdown .foot {
+  position: sticky;
+  bottom: 0;
+  padding: 5px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.dropdown .foot button { width: 100%; }
+.dropdown .foot button:disabled { color: var(--muted); cursor: default; border-color: var(--border); }
+
 .btn-group { display: flex; }
 .btn-group button { border-radius: 0; border-right-width: 0; }
 .btn-group button:first-child { border-radius: 4px 0 0 4px; }
