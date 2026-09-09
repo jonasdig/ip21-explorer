@@ -380,13 +380,13 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
-#tag-table .grip {
+#tag-table .resize {
   flex: none;
   height: 5px;
   cursor: row-resize;
   background: var(--panel-2);
 }
-#tag-table .grip:hover { background: var(--accent); }
+#tag-table .resize:hover { background: var(--accent); }
 
 #tag-table .head, #tag-table .row {
   display: grid;
@@ -489,12 +489,24 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 }
 #tag-table .row.flash { animation: tag-row-flash 0.7s ease-out; }
 
+/* Fills its cell: a glyph-sized target is almost impossible to aim at, and
+   this is the only way to reorder with the mouse. */
+/* The row centres its cells, which leaves an inline span only as tall as its
+   glyph; the grip has to stretch to be worth aiming at. */
+#tag-table .cell.grip { align-self: stretch; display: flex; }
 #tag-table .handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
   cursor: grab;
   color: var(--muted);
   user-select: none;
-  letter-spacing: -1px;
+  touch-action: none;
 }
+#tag-table .handle:hover { color: var(--accent); }
+#tag-table .row.dragging .handle { cursor: grabbing; }
 /* Dense controls need a focus ring of their own: the default is invisible at
    this size, and the whole point of the table is keyboard editing. */
 #tag-table .cell :focus-visible {

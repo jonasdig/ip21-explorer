@@ -15,13 +15,22 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
 - **Full-screen plot per tab** — multiple tabs, each with its own tag set;
   per-tab *Link time* membership shares a common time range between the tabs
   that opt in
+- **Tag settings table** under the plot, toggled with the **Table** button: one
+  row per tag with colour, record map, sampling type, interval, stepped, and
+  min/max, all editable in place while the trends stay visible above. `Tab`
+  moves to the next setting, `Enter` to the same setting on the next tag, so a
+  whole plot can be set up without leaving the keyboard. Rows drag to reorder
+  (or `Alt`+`↑`/`↓`), which is also the order the stacked axis gutter and the
+  scooter readouts use, so related tags can be grouped
 - **Per-tag colour**: tags get distinct colorblind-friendly colors
   automatically; pick another from the palette — or any colour at all — in the
-  tag's settings popover
+  table's colour cell
 - **Tag search** with autocomplete over tag names *and* descriptions, so
   half-remembered tags still turn up: pair part of the tag with a word from its
   description (`TIC-24 temperature`) and both must match, `*` wildcards
-  allowed. Names always decide which tags are looked at — IP21 matches those
+  allowed. The result list stays open as tags are picked, so one search can
+  seed a whole plot — click to add, click the ✓ to remove again, hold `Enter`
+  to walk down the list adding as it goes, or take the lot with **Add all N**. Names always decide which tags are looked at — IP21 matches those
   server-side in one request, while a description costs one request per tag — so descriptions are checked
   only among the name matches, capped by `IP21_DESC_SCAN_MAX` and cached. A
   word on its own that matches no tag name finds nothing, rather than reading
@@ -43,14 +52,14 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   button switches it off entirely
 - **Sampling types per tag**: interpolated, average, min, max with
   an aggregate interval (or Auto) — individually per tag, like Process
-  Explorer's Type/Period columns. Intervals start at 4 s, the finest sample
-  IP21 stores
+  Explorer's Type/Period columns, in the table's own Type and Period columns.
+  Intervals start at 4 s, the finest sample IP21 stores
 - **IP21 record maps**: plot `TAG;MAP` (e.g. `TIC-102;OUTPUT`); the map
-  is chosen in each tag's settings popover. The same tag can be plotted several
+  is chosen in each tag's row in the table. The same tag can be plotted several
   times — adding it again moves the copy onto its next unused map, so a
   controller's PV, SP and OUT can be compared side by side
 - **Favourite maps**: real tags carry 30+ record maps but only a few matter —
-  star them in a tag's settings to sort them to the top everywhere and to
+  star them beside the map dropdown to sort them to the top everywhere and to
   decide which map a duplicated tag takes next. Stored server-side in
   `ip21.env` (`IP21_FAVORITE_MAPS`). Map units are looked up only for the map
   actually in use, so opening the dropdown costs one request, not one per map
@@ -68,7 +77,7 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   Live steps aside only when a *manually* pinned interval would make one
   refresh ask for more than 20 000 points per tag
 - **Step rendering per tag** (hold last value) for discrete/status signals,
-  toggled in the tag's settings popover
+  toggled in the tag's row
 - **CSV export** from the chart's right-click menu: the visible window or the
   span between two scooters (semicolon-separated, decimal comma, Excel-ready)
 - **Average between scooters**: per-tag average/min/max/sample count over the

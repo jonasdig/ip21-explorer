@@ -1461,7 +1461,7 @@ function renderTagbar() {
 // row can carry hover, a border and a drag ghost. The columns still line up
 // because every row uses this same template.
 const TAG_COLUMNS = [
-  { key: "grip", label: "", width: "16px" },
+  { key: "grip", label: "", width: "20px" },
   { key: "visible", label: "", width: "22px" },
   { key: "axis", label: "Grid", width: "32px" },
   { key: "color", label: "", width: "24px" },
@@ -1567,7 +1567,7 @@ function buildTagRow(uid) {
     return control;
   };
 
-  const grip = el("span", "handle", "⁙");
+  const grip = el("span", "handle", "⠿");
   grip.title = "Drag to reorder (or Alt+Up / Alt+Down from any cell)";
   grip.addEventListener("pointerdown", (ev) => beginRowDrag(ev, uid));
   cellOf(row, "grip").appendChild(grip);
@@ -3179,7 +3179,7 @@ function initToolbar() {
 
   $("table-toggle").addEventListener("click", toggleTagTable);
   $("tag-table").addEventListener("keydown", onTagTableKey);
-  $("tag-table").querySelector(".grip")
+  $("tag-table").querySelector(".resize")
     .addEventListener("pointerdown", beginTableResize);
 
   $("add-tab").addEventListener("click", () => addTab());
