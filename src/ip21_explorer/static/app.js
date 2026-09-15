@@ -5,10 +5,9 @@ import {
   apiGetDescription, apiGetMaps, apiGetUnit, apiSearchTags, ensureFavorites,
   favoriteMaps, orderedMaps, saveFavorites,
 } from "./api.js";
-import { copyTags, pasteTags, tagsFromClipText } from "./clipboard.js";
 import {
-  DATA_MAX_POINTS, HISTORY_MAX, INTERVALS, LABEL_MODES, LIVE_INTERVAL_MS,
-  LIVE_MAX_POINTS, MAX_SPAN_S, MIN_SPAN_S, PALETTE, PRESETS, SAMPLES,
+  DATA_MAX_POINTS, HISTORY_MAX, INTERVALS, LIVE_MAX_POINTS, MAX_SPAN_S,
+  MIN_SPAN_S, PALETTE, PRESETS, SAMPLES,
 } from "./constants.js";
 import {
   hideContextMenu, openMenu, openSwatchMenu, showContextMenu, showPillMenu,
@@ -24,10 +23,10 @@ import {
   activeTab, byUid, loadState, makeTag, newTab, newUid, normalizeInterval,
   persistState, reqName, rt, runtime, saveState, saveTimer, state,
 } from "./state.js";
-import { initTimeFields } from "./timefields.js";
+import { initToolbar, renderToolbar } from "./toolbar.js";
 import {
   $, el, fmtSpan, fmtTime, fmtVal, intervalLabel, nearestValue, pad2,
-  parseTimeInput, showError, showNotice,
+  showError, showNotice,
 } from "./util.js";
 
 export let chart = null;           // uPlot instance for the active tab
@@ -363,7 +362,7 @@ function makeOpts(tab, r) {
   };
 }
 
-function renderChart() {
+export function renderChart() {
   const tab = activeTab();
   const r = rt(tab);
   const target = $("chart");
@@ -491,7 +490,7 @@ export function resetZoom() {
   }
 }
 
-function setPreset(label) {
+export function setPreset(label) {
   const tab = activeTab();
   pushHistory(tab);
   tab.range = { preset: label };
@@ -534,7 +533,7 @@ export function setAbsoluteRange(tab, start, end, debounced, keepLive) {
   saveState();
 }
 
-function jumpToNow() {
+export function jumpToNow() {
   const tab = activeTab();
   if (tab.range.preset) { // presets are relative: just re-resolve
     loadData(tab);
@@ -546,7 +545,7 @@ function jumpToNow() {
   setAbsoluteRange(tab, now - span, now, false, true);
 }
 
-function toggleLive() {
+export function toggleLive() {
   const tab = activeTab();
   if (!tab.live && liveDisabledReason(tab)) return; // button is disabled
   tab.live = !tab.live;
@@ -572,7 +571,7 @@ function maxSpanFor(tab) {
   return step == null ? Infinity : step * DATA_MAX_POINTS;
 }
 
-function liveDisabledReason(tab) {
+export function liveDisabledReason(tab) {
   const step = finestManualInterval(tab);
   if (step == null) return null;
   const { start, end } = resolveRange(tab);
@@ -593,7 +592,7 @@ function enforceLiveGuard(tab) {
 // One global ticker; only the active tab follows now. Skipped while the page
 // is hidden - the next visible tick catches up because the window is
 // recomputed from the wall clock.
-function liveTick() {
+export function liveTick() {
   const tab = activeTab();
   if (!tab || !tab.live || document.hidden) return;
   if (enforceLiveGuard(tab)) { // a manual interval turned the refresh huge
@@ -749,7 +748,7 @@ export function addTab(tab) {
   return tab;
 }
 
-function setLinked(checked) {
+export function setLinked(checked) {
   const tab = activeTab();
   tab.linked = checked;
   if (checked) {
@@ -813,7 +812,7 @@ async function fetchDescription(tab, name) {
 }
 
 // Only worth paying for while a description is actually on screen.
-function ensureDescriptions(tab) {
+export function ensureDescriptions(tab) {
   if (state.labelMode === "tag") return;
   const wanted = new Set();
   for (const tag of tab.tags) {
@@ -955,7 +954,7 @@ export function removeTag(uid) {
 
 // The tag list lives in two places - the pill strip and the settings table -
 // and they must never disagree, so nothing renders one without the other.
-function renderTags() {
+export function renderTags() {
   renderTagbar();
   renderTagTable();
 }
@@ -1418,7 +1417,7 @@ function beginRowDrag(e, uid) {
 // The global shortcuts must stand aside for an edit in progress. Form controls
 // were always exempt; the table adds buttons - colour, star, auto, remove -
 // where Ctrl+C would otherwise copy every tag instead of the selection.
-function isEditingContext(node) {
+export function isEditingContext(node) {
   if (!node) return false;
   return ["INPUT", "SELECT", "TEXTAREA"].includes(node.tagName) || !!node.closest("#tag-table");
 }
@@ -1427,7 +1426,7 @@ function isEditingContext(node) {
 // to right along a row and on into the next, skips the read-only spans, and
 // lets focus out of the panel at either end. Enter and the arrows are what
 // move between rows.
-function onTagTableKey(e) {
+export function onTagTableKey(e) {
   const cell = e.target.closest("[data-col]");
   if (!cell) return;
 
@@ -1472,7 +1471,7 @@ function onTagTableKey(e) {
 
 // Dragging the top edge trades chart height for table height. The chart is
 // flex: 1 and gives the space up on its own; its ResizeObserver does the rest.
-function beginTableResize(e) {
+export function beginTableResize(e) {
   const panel = $("tag-table");
   e.preventDefault();
   e.target.setPointerCapture(e.pointerId);
@@ -1512,7 +1511,7 @@ function openTagTable(tag) {
   focusTagCell(tag.uid, "color");
 }
 
-function toggleTagTable() {
+export function toggleTagTable() {
   const tab = activeTab();
   tab.tagTable = !tab.tagTable;
   renderToolbar();
@@ -1594,109 +1593,6 @@ document.addEventListener("pointerdown", (e) => {
     hideContextMenu();
   }
 });
-
-export function renderToolbar() {
-  const tab = activeTab();
-
-  // Preset buttons
-  const presets = $("presets");
-  presets.innerHTML = "";
-  for (const preset of PRESETS) {
-    const btn = el("button", tab.range.preset === preset.label ? "active" : "", preset.label);
-    btn.addEventListener("click", () => setPreset(preset.label));
-    presets.appendChild(btn);
-  }
-
-  // Custom range inputs reflect the resolved range
-  const { start, end } = resolveRange(tab);
-  // Not while typing: rewriting the field under the caret loses the edit.
-  for (const [id, t] of [["range-start", start], ["range-end", end]]) {
-    if (document.activeElement !== $(id)) $(id).value = fmtTime(t, true);
-  }
-
-  const liveBlocked = liveDisabledReason(tab);
-  $("live-btn").classList.toggle("active", !!tab.live);
-  $("live-btn").disabled = !tab.live && !!liveBlocked;
-  $("live-btn").title = liveBlocked || "Follow now, refreshing every 10 s";
-
-  const axisModeLabels = { stacked: "Axes: stacked", single: "Axes: one", all: "Axes: all" };
-  $("axis-mode").textContent = axisModeLabels[tab.axisMode] || axisModeLabels.stacked;
-  $("label-mode").textContent = (LABEL_MODES[state.labelMode] || LABEL_MODES.tag).label;
-  $("nav-toggle").classList.toggle("active", !!state.navigator);
-  $("table-toggle").classList.toggle("active", !!tab.tagTable);
-  $("link-ranges-cb").checked = !!tab.linked;
-}
-
-function initToolbar() {
-  initTimeFields();
-  $("apply-range").addEventListener("click", () => {
-    const start = parseTimeInput($("range-start").value);
-    const end = parseTimeInput($("range-end").value);
-    if (start == null || end == null || end <= start) {
-      showError("Invalid custom time range");
-      return;
-    }
-    setAbsoluteRange(activeTab(), start, end, false);
-  });
-
-  $("now-btn").addEventListener("click", jumpToNow);
-  $("live-btn").addEventListener("click", toggleLive);
-  setInterval(liveTick, LIVE_INTERVAL_MS);
-
-  $("label-mode").addEventListener("click", () => {
-    state.labelMode = (LABEL_MODES[state.labelMode] || LABEL_MODES.tag).next;
-    ensureDescriptions(activeTab()); // nothing was fetched while in tag mode
-    renderToolbar();
-    renderTags();
-    positionScooters();
-    saveState();
-  });
-
-  $("axis-mode").addEventListener("click", () => {
-    const tab = activeTab();
-    const cycle = { stacked: "single", single: "all", all: "stacked" };
-    tab.axisMode = cycle[tab.axisMode] || "stacked";
-    renderToolbar();
-    renderChart();
-    saveState();
-  });
-
-  $("add-scooter").addEventListener("click", () => {
-    if (!chart) return;
-    const cur = currentXRange();
-    addScooterAt((cur.start + cur.end) / 2);
-  });
-
-  $("table-toggle").addEventListener("click", toggleTagTable);
-  $("tag-table").addEventListener("keydown", onTagTableKey);
-  $("tag-table").querySelector(".resize")
-    .addEventListener("pointerdown", beginTableResize);
-
-  $("add-tab").addEventListener("click", () => addTab());
-  $("link-ranges-cb").addEventListener("change", (e) => setLinked(e.target.checked));
-
-  // A paste event carries the clipboard text without a permission prompt,
-  // unlike navigator.clipboard.readText().
-  document.addEventListener("paste", (e) => {
-    if (isEditingContext(document.activeElement)) return;
-    const tags = tagsFromClipText(e.clipboardData.getData("text") || "");
-    if (tags) { e.preventDefault(); pasteTags(tags); }
-  });
-
-  document.addEventListener("keydown", (e) => {
-    const typing = isEditingContext(document.activeElement);
-    if ((e.ctrlKey || e.metaKey) && e.key === "c" && !typing &&
-        !window.getSelection().toString()) {
-      copyTags(activeTab().tags);
-      return;
-    }
-    if (e.key !== "Escape") return;
-    if (typing) return;
-    if ($("open-dialog").open || $("save-dialog").open) return; // dialogs close themselves
-    if (!$("context-menu").classList.contains("hidden")) { hideContextMenu(); return; }
-    popHistory();
-  });
-}
 
 export function renderAll() {
   renderTabs();

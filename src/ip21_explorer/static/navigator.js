@@ -1,10 +1,9 @@
 /* The navigator band under the chart. */
 
-import {
-  chart, renderToolbar, resolveRange, setAbsoluteRange, tagLabel,
-} from "./app.js";
+import { chart, resolveRange, setAbsoluteRange, tagLabel } from "./app.js";
 import { MIN_SPAN_S } from "./constants.js";
 import { activeTab, byUid, reqName, rt, saveState, state } from "./state.js";
+import { renderToolbar } from "./toolbar.js";
 import { $, fmtTime } from "./util.js";
 
 // The band under the chart shows a wider span with the visible window drawn on
