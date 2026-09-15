@@ -2,6 +2,11 @@
 "use strict";
 
 import {
+  apiDeletePlot, apiGetDescription, apiGetMaps, apiGetPlot, apiGetUnit,
+  apiListPlots, apiSavePlot, apiSearchTags, ensureFavorites, favoriteMaps,
+  orderedMaps, saveFavorites,
+} from "./api.js";
+import {
   DATA_MAX_POINTS, HISTORY_MAX, INTERVALS, LABEL_MODES, LIVE_INTERVAL_MS,
   LIVE_MAX_POINTS, MAX_SPAN_S, MIN_QUERY_LEN, MIN_SPAN_S, OPEN_ALL_CONFIRM,
   PALETTE, PRESETS, SAMPLES, SEARCH_DEBOUNCE_MS, STORAGE_KEY,
@@ -210,79 +215,6 @@ function resolveRange(tab) {
     return { start: end - (preset ? preset.s : 86400), end };
   }
   return { start: tab.range.start, end: tab.range.end };
-}
-
-// Returns the whole body: besides the hits it may carry a note explaining an
-// incomplete answer, e.g. a description scan that ran out of budget.
-async function apiSearchTags(q, signal) {
-  const resp = await fetch(
-    `/api/tags?${new URLSearchParams({ q, limit: "40" })}`, { signal }
-  );
-  if (!resp.ok) throw new Error(`tag search failed (${resp.status})`);
-  return await resp.json();
-}
-
-// Favourite record maps, shared across tags and stored server-side in the env
-// file. Real tags have 30+ maps but only a few are ever used.
-let favoriteMaps = [];
-
-let favoritesPromise = null;
-
-function ensureFavorites() {
-  if (!favoritesPromise) {
-    favoritesPromise = fetch("/api/favorites")
-      .then((r) => (r.ok ? r.json() : { favorites: [] }))
-      .then((data) => { favoriteMaps = data.favorites || []; })
-      .catch(() => {});
-  }
-  return favoritesPromise;
-}
-
-async function saveFavorites(names) {
-  const resp = await fetch("/api/favorites", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ favorites: names }),
-  });
-  if (!resp.ok) {
-    const detail = (await resp.json().catch(() => ({}))).detail;
-    showError(detail || "could not save favourite maps");
-    return false;
-  }
-  favoriteMaps = (await resp.json()).favorites || [];
-  return true;
-}
-
-// Favourites first (in favourite order), then the rest as the server sent
-// them. Never used to rewrite tag.maps: maps[0] is the default map there, and
-// reordering it would silently change which map counts as the default.
-function orderedMaps(maps) {
-  if (!favoriteMaps.length) return maps;
-  const favored = [];
-  for (const name of favoriteMaps) {
-    const found = maps.find((m) => m.name === name);
-    if (found) favored.push(found);
-  }
-  if (!favored.length) return maps;
-  return [...favored, ...maps.filter((m) => !favored.includes(m))];
-}
-
-async function apiGetUnit(name) {
-  const resp = await fetch(`/api/unit?${new URLSearchParams({ tag: name })}`);
-  if (!resp.ok) throw new Error(`unit lookup failed (${resp.status})`);
-  return (await resp.json()).unit;
-}
-
-async function apiGetDescription(name) {
-  const resp = await fetch(`/api/description?${new URLSearchParams({ tag: name })}`);
-  if (!resp.ok) throw new Error(`description lookup failed (${resp.status})`);
-  return (await resp.json()).description;
-}
-
-async function apiGetMaps(tagName) {
-  const resp = await fetch(`/api/maps?${new URLSearchParams({ tag: tagName })}`);
-  if (!resp.ok) throw new Error(`map lookup failed (${resp.status})`);
-  return (await resp.json()).maps;
 }
 
 async function loadData(tab) {
@@ -3084,32 +3016,6 @@ function initDialogs() {
   });
   $("share-plot").addEventListener("click", copyShareLink);
   $("avg-close").addEventListener("click", () => $("avg-dialog").close());
-}
-
-async function apiListPlots() {
-  const resp = await fetch("/api/plots");
-  return resp.ok ? (await resp.json()).plots : [];
-}
-
-async function apiGetPlot(name) {
-  const resp = await fetch(`/api/plots/${encodeURIComponent(name)}`);
-  return resp.ok ? resp.json() : null;
-}
-
-async function apiSavePlot(name, config) {
-  const resp = await fetch(`/api/plots/${encodeURIComponent(name)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
-  });
-  if (resp.ok) return true;
-  const detail = (await resp.json().catch(() => ({}))).detail;
-  showError(detail || `could not save "${name}"`);
-  return false;
-}
-
-async function apiDeletePlot(name) {
-  await fetch(`/api/plots/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
 function parseLabels(text) {
