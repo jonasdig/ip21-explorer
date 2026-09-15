@@ -2,9 +2,8 @@
 
 import {
   addTab, beginTableResize, chart, currentXRange, ensureDescriptions,
-  isEditingContext, jumpToNow, liveDisabledReason, liveTick, onTagTableKey,
-  popHistory, renderChart, renderTags, resolveRange, setAbsoluteRange,
-  setLinked, setPreset, toggleLive, toggleTagTable,
+  isEditingContext, onTagTableKey, renderChart, renderTags, setLinked,
+  toggleTagTable,
 } from "./app.js";
 import { copyTags, pasteTags, tagsFromClipText } from "./clipboard.js";
 import { LABEL_MODES, LIVE_INTERVAL_MS, PRESETS } from "./constants.js";
@@ -12,6 +11,10 @@ import { hideContextMenu } from "./menu.js";
 import { addScooterAt, positionScooters } from "./scooters.js";
 import { activeTab, saveState, state } from "./state.js";
 import { initTimeFields } from "./timefields.js";
+import {
+  jumpToNow, liveDisabledReason, liveTick, popHistory, resolveRange,
+  setAbsoluteRange, setPreset, toggleLive,
+} from "./timerange.js";
 import { $, el, fmtTime, parseTimeInput, showError } from "./util.js";
 
 export function renderToolbar() {

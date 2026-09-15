@@ -4,13 +4,13 @@ import {
   exportCsvRange, exportTags, outermostScooters, showAverageDialog,
 } from "./analysis.js";
 import {
-  currentXRange, duplicateTag, focusTagCell, popHistory, removeTag, resetZoom,
-  setTagField,
+  currentXRange, duplicateTag, focusTagCell, removeTag, setTagField,
 } from "./app.js";
 import { copyTags, pasteFromClipboard } from "./clipboard.js";
 import { PALETTE } from "./constants.js";
 import { addScooterAt, mountScooters } from "./scooters.js";
 import { activeTab, rt, saveState } from "./state.js";
+import { popHistory, resetZoom } from "./timerange.js";
 import { $, el } from "./util.js";
 
 // Opens #context-menu at the event position with the given items, where an
