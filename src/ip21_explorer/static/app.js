@@ -3652,3 +3652,12 @@ function init() {
 }
 
 init();
+
+// Module code keeps its names out of window, so the browser console needs a
+// way in. Getters, because state and chart are replaced rather than mutated.
+window.ip21 = {
+  get state() { return state; },
+  get chart() { return chart; },
+  activeTab, rt, byUid, makeTag, renderAll, loadData, apiSearchTags,
+  insertTags, removeTags, setTagFields, moveTag,
+};
