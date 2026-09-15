@@ -184,13 +184,32 @@ src/ip21_explorer/
     base.py            DataSource protocol, SampleType (INT/AVG/MIN/MAX)
     simulator.py       Deterministic synthetic trends (dev/testing)
     aspen.py           tagreader-backed live source (work machine)
-  static/              Vanilla JS frontend, vendored uPlot (MIT, ~50 KB)
-tests/                 Simulator and API tests (pytest)
+  static/              Vanilla JS frontend as ES modules, vendored uPlot (MIT, ~50 KB)
+    main.js            Entry point: wires the modules together and starts the app
+    state.js           Tabs and tags, their migration, localStorage
+    api.js, data.js    Server API wrappers; fetching and joining trend data
+    chart.js           uPlot chart; axis-gutter.js draws the stacked axis
+    tags.js            Adding/removing tags, the pill strip, the tag setter
+    tag-table.js       Settings table (tag-table-keys.js: its keyboard handling)
+    search.js          Tag search         timerange.js   Presets, zoom, live
+    scooters.js        Value cursors      navigator.js   Navigator band
+    tabs.js            Tab strip          toolbar.js     Buttons, shortcuts
+    plots.js           Save/open/import   share.js       Share links
+    menu.js            Context menus      clipboard.js   Copy/paste tags
+    analysis.js        CSV, averages      timefields.js  Time fields, calendar
+    constants.js, util.js
+tests/                 Simulator, API and frontend module tests (pytest)
 ```
 
 The two data sources implement the same small protocol, so the entire app is
 testable against the simulator; `aspen.py` is a thin mapping kept deliberately
 free of logic.
+
+The frontend has no build step, so nothing checks its imports before a browser
+runs them - and a browser only reports a missing import when the code needing
+it runs. `tests/test_static_modules.py` scans the modules as text instead and
+fails on an import that does not resolve, a name used from another module
+without importing it, an unused import, or a module nothing loads.
 
 ## License
 

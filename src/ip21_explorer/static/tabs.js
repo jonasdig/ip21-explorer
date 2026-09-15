@@ -1,7 +1,7 @@
 /* The tab strip: rendering, overflow, switching, closing and linking. */
 
-import { renderAll } from "./app.js";
 import { loadData } from "./data.js";
+import { renderAll } from "./main.js";
 import { openMenu } from "./menu.js";
 import { activeTab, newTab, runtime, saveState, state } from "./state.js";
 import { pushHistory } from "./timerange.js";

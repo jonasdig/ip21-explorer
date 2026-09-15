@@ -2,8 +2,8 @@
 
 import { downloadText } from "./analysis.js";
 import { apiDeletePlot, apiGetPlot, apiListPlots, apiSavePlot } from "./api.js";
-import { renderAll } from "./app.js";
 import { OPEN_ALL_CONFIRM } from "./constants.js";
+import { renderAll } from "./main.js";
 import { copyShareLink } from "./share.js";
 import {
   activeTab, byUid, makeTag, newTab, normalizeInterval, normalizeTagName,

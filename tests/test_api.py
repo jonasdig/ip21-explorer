@@ -293,7 +293,7 @@ def test_favorites_survive_a_reload_of_the_env_file(favorites_client, monkeypatc
     assert Settings.from_env().favorite_maps == ["CA_I SP"]
 
 
-@pytest.mark.parametrize("path", ["/", "/app.js", "/style.css"])
+@pytest.mark.parametrize("path", ["/", "/main.js", "/style.css"])
 def test_static_files_are_revalidated(client, path):
     # The frontend is loaded as separate modules with no build step; a stale
     # cached module next to a fresh one would break its imports.

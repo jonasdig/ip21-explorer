@@ -1,5 +1,5 @@
-/* IP21 Explorer frontend: tabs, tag search, uPlot chart, scooters, save/open. */
-"use strict";
+/* IP21 Explorer frontend entry point: wires the modules together and starts
+   the app. Modules are always strict, so there is no "use strict" here. */
 
 import { apiSearchTags, ensureFavorites } from "./api.js";
 import { chart, chartSize, renderChart } from "./chart.js";
