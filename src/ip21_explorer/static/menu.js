@@ -4,11 +4,12 @@ import {
   exportCsvRange, exportTags, outermostScooters, showAverageDialog,
 } from "./analysis.js";
 import {
-  addScooterAt, currentXRange, duplicateTag, focusTagCell, mountScooters,
-  popHistory, removeTag, resetZoom, setTagField,
+  currentXRange, duplicateTag, focusTagCell, popHistory, removeTag, resetZoom,
+  setTagField,
 } from "./app.js";
 import { copyTags, pasteFromClipboard } from "./clipboard.js";
 import { PALETTE } from "./constants.js";
+import { addScooterAt, mountScooters } from "./scooters.js";
 import { activeTab, rt, saveState } from "./state.js";
 import { $, el } from "./util.js";
 
