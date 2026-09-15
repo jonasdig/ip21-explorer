@@ -3,9 +3,8 @@
 import {
   exportCsvRange, exportTags, outermostScooters, showAverageDialog,
 } from "./analysis.js";
-import {
-  currentXRange, duplicateTag, focusTagCell, removeTag, setTagField,
-} from "./app.js";
+import { duplicateTag, focusTagCell, removeTag, setTagField } from "./app.js";
+import { currentXRange } from "./chart.js";
 import { copyTags, pasteFromClipboard } from "./clipboard.js";
 import { PALETTE } from "./constants.js";
 import { addScooterAt, mountScooters } from "./scooters.js";

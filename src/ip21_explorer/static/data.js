@@ -1,6 +1,7 @@
 /* Fetching trend data for a tab and joining it into uPlot's format. */
 
-import { ensureDescriptions, ensureUnits, renderChart } from "./app.js";
+import { ensureDescriptions, ensureUnits } from "./app.js";
+import { renderChart } from "./chart.js";
 import { ensureNavData } from "./navigator.js";
 import { reqName, rt, state } from "./state.js";
 import { resolveRange } from "./timerange.js";

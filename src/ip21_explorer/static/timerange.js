@@ -1,6 +1,6 @@
 /* Time windows: presets, zoom history, live mode and linked tabs. */
 
-import { chart } from "./app.js";
+import { chart } from "./chart.js";
 import {
   DATA_MAX_POINTS, HISTORY_MAX, LIVE_MAX_POINTS, MIN_SPAN_S, PRESETS,
 } from "./constants.js";

@@ -1,6 +1,7 @@
 /* The navigator band under the chart. */
 
-import { chart, tagLabel } from "./app.js";
+import { tagLabel } from "./app.js";
+import { chart } from "./chart.js";
 import { MIN_SPAN_S } from "./constants.js";
 import { activeTab, byUid, reqName, rt, saveState, state } from "./state.js";
 import { resolveRange, setAbsoluteRange } from "./timerange.js";

@@ -1,9 +1,10 @@
 /* The toolbar's buttons and the global keyboard shortcuts. */
 
 import {
-  beginTableResize, chart, currentXRange, ensureDescriptions, isEditingContext,
-  onTagTableKey, renderChart, renderTags, toggleTagTable,
+  beginTableResize, ensureDescriptions, isEditingContext, onTagTableKey,
+  renderTags, toggleTagTable,
 } from "./app.js";
+import { chart, currentXRange, renderChart } from "./chart.js";
 import { copyTags, pasteTags, tagsFromClipText } from "./clipboard.js";
 import { LABEL_MODES, LIVE_INTERVAL_MS, PRESETS } from "./constants.js";
 import { hideContextMenu } from "./menu.js";

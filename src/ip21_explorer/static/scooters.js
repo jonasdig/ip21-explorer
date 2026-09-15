@@ -1,6 +1,6 @@
 /* Scooters: draggable value cursors and their readout boxes. */
 
-import { appendValueRows, chart, currentXRange } from "./app.js";
+import { appendValueRows, chart, currentXRange } from "./chart.js";
 import { activeTab, rt, saveState } from "./state.js";
 import { el, fmtTime } from "./util.js";
 
