@@ -1,23 +1,21 @@
 /* IP21 Explorer frontend: tabs, tag search, uPlot chart, scooters, save/open. */
 "use strict";
 
-import {
-  downloadText, exportCsvRange, exportTags, outermostScooters,
-  showAverageDialog,
-} from "./analysis.js";
+import { downloadText } from "./analysis.js";
 import {
   apiDeletePlot, apiGetDescription, apiGetMaps, apiGetPlot, apiGetUnit,
   apiListPlots, apiSavePlot, apiSearchTags, ensureFavorites, favoriteMaps,
   orderedMaps, saveFavorites,
 } from "./api.js";
-import {
-  copyTags, pasteFromClipboard, pasteTags, tagsFromClipText,
-} from "./clipboard.js";
+import { copyTags, pasteTags, tagsFromClipText } from "./clipboard.js";
 import {
   DATA_MAX_POINTS, HISTORY_MAX, INTERVALS, LABEL_MODES, LIVE_INTERVAL_MS,
   LIVE_MAX_POINTS, MAX_SPAN_S, MIN_QUERY_LEN, MIN_SPAN_S, OPEN_ALL_CONFIRM,
   PALETTE, PRESETS, SAMPLES, SEARCH_DEBOUNCE_MS,
 } from "./constants.js";
+import {
+  hideContextMenu, openMenu, openSwatchMenu, showContextMenu, showPillMenu,
+} from "./menu.js";
 import {
   activeTab, byUid, loadState, makeTag, newTab, newUid, normalizeInterval,
   normalizeTagName, persistState, reqName, rt, runtime, saveState, saveTimer,
@@ -412,7 +410,7 @@ function onChartReady(u) {
   });
 }
 
-function currentXRange() {
+export function currentXRange() {
   const tab = activeTab();
   const r = rt(tab);
   if (chart && chart.scales.x.min != null) {
@@ -466,7 +464,7 @@ function pushHistory(tab) {
   if (tab.history.length > HISTORY_MAX) tab.history.shift();
 }
 
-function popHistory() {
+export function popHistory() {
   const tab = activeTab();
   if (!tab.history || !tab.history.length) return;
   tab.live = false;
@@ -477,7 +475,7 @@ function popHistory() {
   saveState();
 }
 
-function resetZoom() {
+export function resetZoom() {
   const tab = activeTab();
   const preset = tab.range.preset || tab.range.fromPreset;
   if (preset && PRESETS.some((p) => p.label === preset)) {
@@ -923,7 +921,7 @@ async function addTag(info) {
   await insertTag(tab, makeTag(info));
 }
 
-async function duplicateTag(uid) {
+export async function duplicateTag(uid) {
   const tab = activeTab();
   const src = byUid(tab, uid);
   if (!src) return;
@@ -950,7 +948,7 @@ function removeTags(tab, uids) {
   saveState();
 }
 
-function removeTag(uid) {
+export function removeTag(uid) {
   removeTags(activeTab(), [uid]);
 }
 
@@ -1345,7 +1343,7 @@ function ensureMaps(tab, tag) {
 
 // Puts the caret back where the user was, addressed by tag and column rather
 // than by any element that a re-render might have replaced.
-function focusTagCell(uid, col) {
+export function focusTagCell(uid, col) {
   const control = $("tag-table").querySelector(`[data-uid="${uid}"][data-col="${col}"]`);
   if (control) control.focus();
   return control;
@@ -1571,7 +1569,7 @@ function setTagFields(tab, tag, patch) {
   saveState();
 }
 
-function setTagField(tab, tag, key, value) {
+export function setTagField(tab, tag, key, value) {
   setTagFields(tab, tag, { [key]: value });
 }
 
@@ -1596,123 +1594,7 @@ document.addEventListener("pointerdown", (e) => {
   }
 });
 
-// Opens #context-menu at the event position with the given items, where an
-// item is [label, shortcut, action, disabled] and null is a separator.
-function openMenu(e, items) {
-  const menu = $("context-menu");
-  menu.innerHTML = "";
-  for (const spec of items) {
-    if (!spec) { menu.appendChild(el("div", "sep")); continue; }
-    const [label, key, action, disabled] = spec;
-    const item = el("div", "menu-item" + (disabled ? " disabled" : ""));
-    item.appendChild(el("span", null, label));
-    if (key) item.appendChild(el("span", "key", key));
-    item.addEventListener("click", () => { hideContextMenu(); action(); });
-    menu.appendChild(item);
-  }
-  placeMenu(menu, e.clientX, e.clientY);
-}
-
-// Kept apart from openMenu so a menu opened from a cell can be placed under
-// the control that opened it, where there is no pointer position to use.
-function placeMenu(menu, x, y) {
-  // Measure the menu while invisible so the clamp tracks its real size.
-  menu.style.visibility = "hidden";
-  menu.classList.remove("hidden");
-  const left = Math.min(x, window.innerWidth - menu.offsetWidth - 8);
-  const top = Math.min(y, window.innerHeight - menu.offsetHeight - 8);
-  menu.style.left = `${Math.max(0, left)}px`;
-  menu.style.top = `${Math.max(0, top)}px`;
-  menu.style.visibility = "";
-}
-
-// The palette, as a menu hung under a cell. A select cannot show colours, so
-// this is the one table cell that needs a menu of its own.
-function openSwatchMenu(anchor, tab, tag) {
-  const menu = $("context-menu");
-  menu.innerHTML = "";
-  const grid = el("div", "swatches");
-  const taken = new Set(tab.tags.filter((t) => t !== tag).map((t) => t.color));
-  for (const color of PALETTE) {
-    const swatch = el("button", "swatch" + (color === tag.color ? " on" : "") +
-      (taken.has(color) ? " taken" : ""));
-    swatch.style.background = color;
-    swatch.title = taken.has(color) ? `${color} (used by another tag)` : color;
-    swatch.addEventListener("click", () => {
-      hideContextMenu();
-      setTagField(tab, tag, "color", color);
-      focusTagCell(tag.uid, "color");
-    });
-    grid.appendChild(swatch);
-  }
-  menu.appendChild(grid);
-
-  const custom = el("div", "menu-item");
-  custom.appendChild(el("span", null, "Custom"));
-  const picker = el("input");
-  picker.type = "color";
-  picker.value = tag.color || PALETTE[0];
-  picker.addEventListener("change", () => {
-    hideContextMenu();
-    setTagField(tab, tag, "color", picker.value);
-    focusTagCell(tag.uid, "color");
-  });
-  custom.appendChild(picker);
-  menu.appendChild(custom);
-
-  const rect = anchor.getBoundingClientRect();
-  placeMenu(menu, rect.left, rect.bottom + 4);
-}
-
-function showContextMenu(e, tAtCursor) {
-  const tab = activeTab();
-  const items = [];
-  const mkItem = (label, key, action, disabled) =>
-    items.push([label, key, action, disabled]);
-
-  mkItem("Add scooter here", "dbl-click", () => addScooterAt(tAtCursor));
-  mkItem("Delete all scooters", null, () => {
-    tab.scooters = [];
-    mountScooters();
-    saveState();
-  }, !tab.scooters.length);
-  items.push(null);
-  mkItem("Zoom back", "Esc", popHistory, !(tab.history && tab.history.length));
-  mkItem("Reset zoom", null, resetZoom);
-  items.push(null);
-
-  const r = rt(tab);
-  const noData = !r.raw || !exportTags(tab, r).length;
-  const pair = outermostScooters(tab);
-  mkItem("Export CSV (visible window)", null, () => {
-    const cur = currentXRange();
-    exportCsvRange(cur.start, cur.end);
-  }, noData);
-  mkItem("Export CSV (between scooters)", null, () => {
-    exportCsvRange(pair.t0, pair.t1);
-  }, noData || !pair);
-  mkItem("Average between scooters", null, () => {
-    showAverageDialog(pair.t0, pair.t1);
-  }, noData || !pair);
-
-  openMenu(e, items);
-}
-
-function showPillMenu(e, tag) {
-  const tab = activeTab();
-  openMenu(e, [
-    ["Copy tag", "Ctrl+C", () => copyTags([tag])],
-    ["Copy all tags", null, () => copyTags(tab.tags), !tab.tags.length],
-    ["Duplicate tag", null, () => duplicateTag(tag.uid)],
-    ["Paste tags", "Ctrl+V", pasteFromClipboard],
-    null,
-    ["Remove tag", null, () => removeTag(tag.uid)],
-  ]);
-}
-
-function hideContextMenu() { $("context-menu").classList.add("hidden"); }
-
-function addScooterAt(t) {
+export function addScooterAt(t) {
   const tab = activeTab();
   tab.scooters.push({ t });
   mountScooters();
@@ -1725,7 +1607,7 @@ function forgetScooterEls() {
   scooterEls = [];
 }
 
-function mountScooters() {
+export function mountScooters() {
   if (!chart) return;
   for (const s of scooterEls) { s.line.remove(); s.box.remove(); }
   scooterEls = [];
