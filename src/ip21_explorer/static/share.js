@@ -1,8 +1,8 @@
 /* Share links that carry a whole plot in the URL fragment. */
 
-import { addTab } from "./app.js";
 import { readConfig, tabToConfig } from "./plots.js";
 import { activeTab } from "./state.js";
+import { addTab } from "./tabs.js";
 import { showError, showNotice } from "./util.js";
 
 // Everything the plot needs travels in the URL fragment: there is no shared

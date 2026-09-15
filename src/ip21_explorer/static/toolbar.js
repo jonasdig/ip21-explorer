@@ -1,15 +1,15 @@
 /* The toolbar's buttons and the global keyboard shortcuts. */
 
 import {
-  addTab, beginTableResize, chart, currentXRange, ensureDescriptions,
-  isEditingContext, onTagTableKey, renderChart, renderTags, setLinked,
-  toggleTagTable,
+  beginTableResize, chart, currentXRange, ensureDescriptions, isEditingContext,
+  onTagTableKey, renderChart, renderTags, toggleTagTable,
 } from "./app.js";
 import { copyTags, pasteTags, tagsFromClipText } from "./clipboard.js";
 import { LABEL_MODES, LIVE_INTERVAL_MS, PRESETS } from "./constants.js";
 import { hideContextMenu } from "./menu.js";
 import { addScooterAt, positionScooters } from "./scooters.js";
 import { activeTab, saveState, state } from "./state.js";
+import { addTab, setLinked } from "./tabs.js";
 import { initTimeFields } from "./timefields.js";
 import {
   jumpToNow, liveDisabledReason, liveTick, popHistory, resolveRange,

@@ -2,13 +2,14 @@
 
 import { downloadText } from "./analysis.js";
 import { apiDeletePlot, apiGetPlot, apiListPlots, apiSavePlot } from "./api.js";
-import { addTab, nextColor, renderAll, renderTabs } from "./app.js";
+import { nextColor, renderAll } from "./app.js";
 import { OPEN_ALL_CONFIRM } from "./constants.js";
 import { copyShareLink } from "./share.js";
 import {
   activeTab, byUid, makeTag, newTab, normalizeInterval, normalizeTagName,
   saveState, state,
 } from "./state.js";
+import { addTab, renderTabs } from "./tabs.js";
 import { $, el, fmtTime, showError } from "./util.js";
 
 const CONFIG_VERSION = 4;
