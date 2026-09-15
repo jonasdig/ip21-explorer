@@ -1870,9 +1870,9 @@ function beginRowDrag(e, uid) {
 // The global shortcuts must stand aside for an edit in progress. Form controls
 // were always exempt; the table adds buttons - colour, star, auto, remove -
 // where Ctrl+C would otherwise copy every tag instead of the selection.
-function isEditingContext(el) {
-  if (!el) return false;
-  return ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) || !!el.closest("#tag-table");
+function isEditingContext(node) {
+  if (!node) return false;
+  return ["INPUT", "SELECT", "TEXTAREA"].includes(node.tagName) || !!node.closest("#tag-table");
 }
 
 // Tab and Shift+Tab are left to the browser: its own order already runs left
@@ -1979,30 +1979,30 @@ function toggleTagTable() {
 // colour and scale only redraw, while sampling, interval and map mean a new
 // request to the historian.
 function setTagFields(tab, tag, patch) {
-  let chart = false, fetch = false, live = false, nav = false;
+  let redraw = false, refetch = false, live = false, nav = false;
   for (const [key, value] of Object.entries(patch)) {
     if (key === "visible") {
       tag.visible = value !== false;
-      chart = true;
+      redraw = true;
     } else if (key === "color") {
       tag.color = value;
       // The navigator band draws from a snapshot of the colour, taken when its
       // context was fetched, so a recolour has to be handed to it directly.
       const r = rt(tab);
       if (r.navTagUid === tag.uid) r.navColor = value;
-      chart = nav = true;
+      redraw = nav = true;
     } else if (key === "step") {
       tag.step = !!value;
-      chart = true;
+      redraw = true;
     } else if (key === "min" || key === "max") {
       tag[key] = Number.isFinite(value) ? value : null;
-      chart = true;
+      redraw = true;
     } else if (key === "sample") {
       tag.sample = value;
-      fetch = true;
+      refetch = true;
     } else if (key === "interval") {
       tag.interval = normalizeInterval(value);
-      fetch = live = true;
+      refetch = live = true;
     } else if (key === "map") {
       // maps[0] is the default and is stored as null, so the two spellings of
       // "the default map" cannot read as two different traces.
@@ -2010,7 +2010,7 @@ function setTagFields(tab, tag, patch) {
       tag.map = !value || value === defaultName ? null : value;
       applyMapUnit(tag, tag.maps.find((m) => m.name === (tag.map || defaultName)));
       ensureUnit(tab, tag);
-      fetch = true;
+      refetch = true;
     }
   }
   // A manually pinned interval decides whether live is allowed at all.
@@ -2018,8 +2018,8 @@ function setTagFields(tab, tag, patch) {
   renderTags();
   // Never both: a refetch leaves the old data on screen until the answer
   // lands, which is what keeps a sampling change from flickering.
-  if (fetch) loadData(tab);
-  else if (chart) renderChart();
+  if (refetch) loadData(tab);
+  else if (redraw) renderChart();
   if (nav) renderNavigator();
   saveState();
 }
