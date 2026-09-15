@@ -11,6 +11,9 @@ import {
   orderedMaps, saveFavorites,
 } from "./api.js";
 import {
+  copyTags, pasteFromClipboard, pasteTags, tagsFromClipText,
+} from "./clipboard.js";
+import {
   DATA_MAX_POINTS, HISTORY_MAX, INTERVALS, LABEL_MODES, LIVE_INTERVAL_MS,
   LIVE_MAX_POINTS, MAX_SPAN_S, MIN_QUERY_LEN, MIN_SPAN_S, OPEN_ALL_CONFIRM,
   PALETTE, PRESETS, SAMPLES, SEARCH_DEBOUNCE_MS,
@@ -875,7 +878,7 @@ async function assignFreeMap(tab, tag) {
 // groups tags by sample|interval and issues one request per group: adding N
 // tags one at a time would fire N loads and let the abort guard throw all but
 // the last away, which is pure waste against a slow historian.
-async function insertTags(tab, tags, at) {
+export async function insertTags(tab, tags, at) {
   const added = [], exhausted = [], unknown = [];
   let index = at ?? tab.tags.length;
   for (const tag of tags) {
@@ -1693,65 +1696,6 @@ function showContextMenu(e, tAtCursor) {
   }, noData || !pair);
 
   openMenu(e, items);
-}
-
-// Fallback for when the system clipboard is unavailable or unreadable.
-let tagClipboard = null;
-
-const CLIP_KEY = "ip21ExplorerTags";
-
-// Tags travel as plain JSON text, so they can be pasted between tabs, windows
-// and even machines. uid and color are dropped: copies always get fresh ones.
-function tagsToClipText(tags) {
-  const strip = ({ uid, color, _mapsChecked, ...rest }) => rest;
-  return JSON.stringify({ [CLIP_KEY]: tags.map(strip) }, null, 2);
-}
-
-function tagsFromClipText(text) {
-  try {
-    const parsed = JSON.parse(text);
-    const tags = parsed && parsed[CLIP_KEY];
-    return Array.isArray(tags) && tags.every((t) => t && t.name) ? tags : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-function copyTags(tags) {
-  if (!tags.length) return;
-  const text = tagsToClipText(tags);
-  tagClipboard = text;
-  if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
-}
-
-// Pasted tags keep their settings but get fresh identity, and move onto a free
-// map when they would otherwise land on one that is already plotted.
-async function pasteTags(tags) {
-  if (!tags || !tags.length) return;
-  const tab = activeTab();
-  const built = [];
-  for (const src of tags) {
-    const tag = makeTag(src);
-    tag.map = src.map ?? null;
-    tag.min = src.min ?? null;
-    tag.max = src.max ?? null;
-    tag.visible = src.visible !== false;
-    tag.step = src.step === true;
-    tag.sample = src.sample || "INT";
-    tag.interval = src.interval || "auto";
-    built.push(tag);
-  }
-  await insertTags(tab, built);
-}
-
-async function pasteFromClipboard() {
-  let text = null;
-  if (navigator.clipboard && navigator.clipboard.readText) {
-    text = await navigator.clipboard.readText().catch(() => null);
-  }
-  const tags = tagsFromClipText(text || "") || tagsFromClipText(tagClipboard || "");
-  if (!tags) { showError("No copied tags on the clipboard"); return; }
-  pasteTags(tags);
 }
 
 function showPillMenu(e, tag) {
