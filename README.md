@@ -169,8 +169,10 @@ git pull && .venv/bin/pip install -e ".[aspen]"
 ```
 
 Then restart the server. Saved plots (`plots/*.json`), your `ip21.env` and the
-per-browser state (open tabs, colors, scooters) are untouched — reload with
-Ctrl+F5 if the browser serves a stale `app.js` from cache.
+per-browser state (open tabs, colors, scooters) are untouched. The server tells
+the browser to check for a newer frontend on every load, so a normal reload
+picks it up — except the first time after upgrading from a build older than
+that, when one Ctrl+F5 clears the copy the browser cached on its own.
 
 ## Architecture
 

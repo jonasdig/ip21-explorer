@@ -291,3 +291,19 @@ def test_favorites_survive_a_reload_of_the_env_file(favorites_client, monkeypatc
     monkeypatch.delenv("IP21_FAVORITE_MAPS", raising=False)
     load_env_file(settings.config_file)
     assert Settings.from_env().favorite_maps == ["CA_I SP"]
+
+
+@pytest.mark.parametrize("path", ["/", "/app.js", "/style.css"])
+def test_static_files_are_revalidated(client, path):
+    # The frontend is loaded as separate modules with no build step; a stale
+    # cached module next to a fresh one would break its imports.
+    r = client.get(path)
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-cache"
+
+
+def test_unchanged_static_file_is_a_304(client):
+    first = client.get("/style.css")
+    again = client.get("/style.css", headers={"if-none-match": first.headers["etag"]})
+    assert again.status_code == 304
+    assert again.headers["cache-control"] == "no-cache"

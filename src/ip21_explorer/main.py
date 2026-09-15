@@ -20,6 +20,21 @@ from .sources.simulator import SimulatorSource
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+
+class RevalidatingStaticFiles(StaticFiles):
+    """Static files the browser must check with the server before reusing.
+
+    The frontend is a set of ES modules loaded without a build step, so a
+    heuristically cached copy can mix old and new modules and break imports.
+    no-cache still lets the browser keep its copy - it just asks first, and an
+    unchanged file costs a 304.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
 # Candidate aggregate intervals for interval=auto, in seconds. The floor is
 # 4 s because IP21 stores no sample finer than that.
 NICE_INTERVALS = [
@@ -258,7 +273,7 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
         path.unlink()
         return {"deleted": name}
 
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+    app.mount("/", RevalidatingStaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app
 
 
