@@ -143,7 +143,6 @@ async function saveCurrentPlot() {
 }
 
 let plotList = [];        // last listing from the server
-
 let labelFilter = null;   // active label chip, null = show all
 
 async function openPlotDialog() {

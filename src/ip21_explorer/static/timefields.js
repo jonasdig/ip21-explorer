@@ -6,12 +6,10 @@ import {
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
-
 // Monday first, as the rest of Europe reads a calendar.
 const WEEKDAY_NAMES = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 let calendarField = null;   // the input the open calendar belongs to
-
 let calendarMonth = null;   // first of the month on show
 
 // Arrow keys step the unit under the caret, so the field keeps the one thing

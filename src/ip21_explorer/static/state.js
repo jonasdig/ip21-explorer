@@ -4,11 +4,8 @@ import { TAG_TABLE_DEFAULT_H, clampTableHeight } from "./app.js";
 import { INTERVALS, LABEL_MODES, STORAGE_KEY } from "./constants.js";
 
 export let state = null;      // { tabs: [...], activeTabId }
-
 let tabSeq = 0;
-
 let uidSeq = 0;
-
 export const runtime = new Map();  // tab.id -> {raw, data, tagOrder, start, end, seq, abort}
 
 export let saveTimer = null;

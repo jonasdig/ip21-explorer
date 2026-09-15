@@ -38,24 +38,16 @@ export const INTERVALS = [
 ];
 
 export const STORAGE_KEY = "ip21explorer.v1";
-
 // Each search is real work for the IP21 server: keep them specific and rare.
 export const MIN_QUERY_LEN = 2;
-
 export const SEARCH_DEBOUNCE_MS = 350;
-
 // Finest sample IP21 holds; the server's NICE_INTERVALS floor matches it.
 const MIN_INTERVAL_S = 4;
-
 // One minute is 15 samples at the 4 s floor; anything tighter is a flat line.
 export const MIN_SPAN_S = 60;
-
 export const MAX_SPAN_S = 5 * 366 * 24 * 3600;
-
 export const HISTORY_MAX = 50;
-
 export const LIVE_INTERVAL_MS = 10_000;
-
 // Above this, "Open all" asks first: each listed plot becomes its own tab.
 export const OPEN_ALL_CONFIRM = 8;
 
@@ -65,12 +57,10 @@ export const LABEL_MODES = {
   desc: { label: "Labels: description", next: "both" },
   both: { label: "Labels: both", next: "tag" },
 };
-
 // Live refuses a refresh that would ask for more points than /api/data will
 // ever serve in one go. Span is not the measure - liveTick already refreshes
 // once per bucket, so a wide window is the cheapest one - request size is.
 export const LIVE_MAX_POINTS = 20000;
-
 // The server refuses more than this per tag in one request (see MAX_POINTS in
 // sources/simulator.py); a pinned interval over a wide window is the only way
 // to reach it.

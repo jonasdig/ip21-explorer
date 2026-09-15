@@ -94,7 +94,6 @@ function xAxisValues(u, splits, axisIdx, foundSpace, foundIncr) {
    height, so they are not round numbers - exactly like Process Explorer. */
 
 const STACKED_FONT = '11px -apple-system, "Segoe UI", Roboto, sans-serif';
-
 const measureCtx = document.createElement("canvas").getContext("2d");
 
 function stackedDecimals(span) {
@@ -632,7 +631,6 @@ const TAG_COLUMNS = [
 ];
 
 export const TAG_TABLE_DEFAULT_H = 200;
-
 const TAG_TABLE_MIN_H = 96;
 
 // Never so tall that the chart it is docked under has nothing left.
@@ -644,7 +642,6 @@ export function clampTableHeight(h) {
 // Rows are kept and patched rather than rebuilt, so an edit in progress keeps
 // its caret, its selection and its undo history. tagRowEls maps uid -> row.
 let tagRowEls = new Map();
-
 let tagRowsTabId = null;
 
 function renderTagTable() {

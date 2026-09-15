@@ -15,7 +15,6 @@ export async function apiSearchTags(q, signal) {
 // Favourite record maps, shared across tags and stored server-side in the env
 // file. Real tags have 30+ maps but only a few are ever used.
 export let favoriteMaps = [];
-
 let favoritesPromise = null;
 
 export function ensureFavorites() {

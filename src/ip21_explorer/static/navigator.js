@@ -15,9 +15,7 @@ import { $, fmtTime } from "./util.js";
 // rebuilt when the window leaves it or the span changes materially. Panning
 // inside the context is free, and the band can be switched off entirely.
 const NAV_CONTEXT_FACTOR = 8;   // context span, as a multiple of the window
-
 const NAV_POINTS = 240;         // coarse on purpose: this is a thumbnail
-
 const NAV_HANDLE_PX = 10;       // grab width of the two edge handles
 
 let navDrag = null;             // {mode, startX, start, end} while dragging

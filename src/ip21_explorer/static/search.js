@@ -7,11 +7,8 @@ import { activeTab, makeTag, normalizeTagName } from "./state.js";
 import { $, el } from "./util.js";
 
 let searchTimer = null;
-
 let searchSelection = -1;
-
 let searchItems = [];
-
 let searchAbort = null;
 
 function renderSearchHint(text) {
