@@ -150,6 +150,20 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .dropdown .item .unit { margin-left: auto; color: var(--muted); }
 .dropdown .none { padding: 6px 10px; color: var(--muted); }
 
+/* A tag already on the plot. The list stays open while tags are picked, so the
+   tick doubles as the control that takes one off again. */
+.dropdown .item.on .name { color: var(--accent); }
+.dropdown .item .mark { color: var(--accent); width: 8px; flex: none; }
+.dropdown .foot {
+  position: sticky;
+  bottom: 0;
+  padding: 5px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.dropdown .foot button { width: 100%; }
+.dropdown .foot button:disabled { color: var(--muted); cursor: default; border-color: var(--border); }
+
 .btn-group { display: flex; }
 .btn-group button { border-radius: 0; border-right-width: 0; }
 .btn-group button:first-child { border-radius: 4px 0 0 4px; }
@@ -209,12 +223,14 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   gap: 8px;
   width: 210px;
 }
-.popover .row { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
-.popover input[type="number"] { width: 110px; }
-.popover select, .popover input[type="text"] { width: 130px; }
-/* Twelve palette swatches plus the custom picker, two rows of six, lined up
-   with the 130px selects beside them. */
-.popover .swatches { display: flex; flex-wrap: wrap; gap: 4px; width: 130px; }
+/* Twelve palette swatches, two rows of six, above the custom picker. */
+.popover .swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 140px;
+  padding: 3px;
+}
 .popover .swatch {
   width: 18px;
   height: 18px;
@@ -225,30 +241,15 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 }
 .popover .swatch.taken { opacity: 0.4; }
 .popover .swatch.on { outline: 2px solid #e8eaf0; outline-offset: 1px; }
-/* Sized like the selects beside it, so it reads as a control rather than a
-   thirteenth swatch orphaned on its own row. */
 .popover input[type="color"] {
-  width: 130px;
-  height: 22px;
+  width: 60px;
+  height: 20px;
   padding: 1px;
   background: none;
   border: 1px solid var(--border);
   border-radius: 4px;
   cursor: pointer;
 }
-.popover .map-row { display: flex; align-items: center; gap: 6px; }
-.popover .map-row select { width: 130px; }
-.popover .star {
-  border: none;
-  background: none;
-  padding: 0 2px;
-  font-size: 14px;
-  line-height: 1;
-  color: var(--muted);
-}
-.popover .star:hover { color: #ffd54f; }
-.popover .star.on { color: #ffd54f; }
-.popover .danger { color: #e57373; }
 
 .popover.menu { width: max-content; min-width: 190px; padding: 5px; gap: 0; }
 .popover.menu .menu-item {
@@ -365,6 +366,160 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   text-overflow: ellipsis;
   display: inline-block;
   vertical-align: bottom;
+}
+
+/* -- tag settings table --------------------------------------------------- */
+
+/* Docked between the chart and the navigator. #chart-wrap is flex: 1 and gives
+   the height up on its own, exactly as it does for the navigator. */
+#tag-table {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+#tag-table .resize {
+  flex: none;
+  height: 5px;
+  cursor: row-resize;
+  background: var(--panel-2);
+}
+#tag-table .resize:hover { background: var(--accent); }
+
+#tag-table .head, #tag-table .row {
+  display: grid;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  min-width: 900px;
+}
+#tag-table .head {
+  flex: none;
+  height: 22px;
+  color: var(--muted);
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+}
+#tag-table .body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+#tag-table .row {
+  height: 26px;
+  border-bottom: 1px solid rgba(46, 52, 66, 0.5);
+}
+#tag-table .row:hover { background: var(--panel-2); }
+#tag-table .row.hidden-tag { opacity: 0.45; }
+#tag-table .cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#tag-table .cell.name { font-weight: 600; }
+
+/* The global control reset is sized for the toolbar; a row of fifteen columns
+   needs every pixel back. */
+#tag-table .cell input, #tag-table .cell select, #tag-table .cell button {
+  padding: 0 3px;
+  height: 19px;
+  max-width: 100%;
+  font-size: 12px;
+}
+#tag-table .cell input[type="checkbox"], #tag-table .cell input[type="radio"] {
+  height: 13px;
+  width: 13px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+#tag-table .cell.min input, #tag-table .cell.max input {
+  width: 100%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#tag-table .cell.map { display: flex; gap: 3px; align-items: center; }
+#tag-table .cell.map select { flex: 1; min-width: 0; }
+#tag-table .cell.sample select, #tag-table .cell.interval select { width: 100%; }
+#tag-table .cell.color .swatch {
+  width: 18px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+#tag-table .cell .star {
+  flex: none;
+  width: 18px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 0;
+}
+#tag-table .cell .star.on { color: #ffd54f; }
+#tag-table .cell.auto button { color: var(--muted); }
+#tag-table .cell.remove .close {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 0;
+}
+#tag-table .cell.remove .close:hover { color: #e57373; }
+#tag-table .body { position: relative; }
+#tag-table .row.dragging {
+  opacity: 0.5;
+  background: var(--panel-2);
+  position: relative;
+  z-index: 2;
+}
+#tag-table .drop-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+/* The gear on a pill jumps here; a table of forty rows needs the eye led to
+   the right one. */
+@keyframes tag-row-flash {
+  from { background: rgba(79, 195, 247, 0.28); }
+  to { background: transparent; }
+}
+#tag-table .row.flash { animation: tag-row-flash 0.7s ease-out; }
+
+/* Fills its cell: a glyph-sized target is almost impossible to aim at, and
+   this is the only way to reorder with the mouse. */
+/* The row centres its cells, which leaves an inline span only as tall as its
+   glyph; the grip has to stretch to be worth aiming at. */
+#tag-table .cell.grip { align-self: stretch; display: flex; }
+#tag-table .handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  color: var(--muted);
+  user-select: none;
+  touch-action: none;
+}
+#tag-table .handle:hover { color: var(--accent); }
+#tag-table .row.dragging .handle { cursor: grabbing; }
+/* Dense controls need a focus ring of their own: the default is invisible at
+   this size, and the whole point of the table is keyboard editing. */
+#tag-table .cell :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: 3px;
+}
+#tag-table .cell.unit, #tag-table .cell.desc { color: var(--muted); }
+#tag-table .body.empty::before {
+  content: "No tags - search above to add some.";
+  display: block;
+  padding: 10px;
+  color: var(--muted);
 }
 
 /* -- navigator ------------------------------------------------------------ */
