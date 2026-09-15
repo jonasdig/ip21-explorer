@@ -1,83 +1,26 @@
 /* IP21 Explorer frontend: tabs, tag search, uPlot chart, scooters, save/open. */
 "use strict";
 
-/* ---------------------------------------------------------------- constants */
-
-const PALETTE = [
-  "#4FC3F7", "#FFB74D", "#81C784", "#E57373", "#BA68C8", "#FFD54F",
-  "#4DD0E1", "#F06292", "#AED581", "#90A4AE", "#FF8A65", "#7986CB",
-];
-
-const PRESETS = [
-  { label: "1h", s: 3600 },
-  { label: "8h", s: 8 * 3600 },
-  { label: "24h", s: 24 * 3600 },
-  { label: "3d", s: 3 * 24 * 3600 },
-  { label: "7d", s: 7 * 24 * 3600 },
-  { label: "30d", s: 30 * 24 * 3600 },
-];
-
-const SAMPLES = [
-  { label: "Interpolated", value: "INT" },
-  { label: "Average", value: "AVG" },
-  { label: "Minimum", value: "MIN" },
-  { label: "Maximum", value: "MAX" },
-];
-
-// The 4 s floor matches the server's NICE_INTERVALS: IP21 stores no sample
-// finer than that, so asking for less only costs bandwidth.
-const INTERVALS = [
-  { label: "Auto", value: "auto" },
-  { label: "4 s", value: "4" },
-  { label: "8 s", value: "8" },
-  { label: "30 s", value: "30" },
-  { label: "1 min", value: "60" },
-  { label: "5 min", value: "300" },
-  { label: "10 min", value: "600" },
-  { label: "30 min", value: "1800" },
-  { label: "1 h", value: "3600" },
-  { label: "6 h", value: "21600" },
-  { label: "1 d", value: "86400" },
-];
-
-const STORAGE_KEY = "ip21explorer.v1";
-// Each search is real work for the IP21 server: keep them specific and rare.
-const MIN_QUERY_LEN = 2;
-const SEARCH_DEBOUNCE_MS = 350;
-// Finest sample IP21 holds; the server's NICE_INTERVALS floor matches it.
-const MIN_INTERVAL_S = 4;
-// One minute is 15 samples at the 4 s floor; anything tighter is a flat line.
-const MIN_SPAN_S = 60;
-const MAX_SPAN_S = 5 * 366 * 24 * 3600;
-const HISTORY_MAX = 50;
-const LIVE_INTERVAL_MS = 10_000;
-// Above this, "Open all" asks first: each listed plot becomes its own tab.
-const OPEN_ALL_CONFIRM = 8;
-
-// What the tag bar and the readout boxes name a tag by, and the cycle order.
-const LABEL_MODES = {
-  tag: { label: "Labels: tag", next: "desc" },
-  desc: { label: "Labels: description", next: "both" },
-  both: { label: "Labels: both", next: "tag" },
-};
-// Live refuses a refresh that would ask for more points than /api/data will
-// ever serve in one go. Span is not the measure - liveTick already refreshes
-// once per bucket, so a wide window is the cheapest one - request size is.
-const LIVE_MAX_POINTS = 20000;
-// The server refuses more than this per tag in one request (see MAX_POINTS in
-// sources/simulator.py); a pinned interval over a wide window is the only way
-// to reach it.
-const DATA_MAX_POINTS = 200000;
-
-/* ------------------------------------------------------------------- state */
+import {
+  DATA_MAX_POINTS, HISTORY_MAX, INTERVALS, LABEL_MODES, LIVE_INTERVAL_MS,
+  LIVE_MAX_POINTS, MAX_SPAN_S, MIN_QUERY_LEN, MIN_SPAN_S, OPEN_ALL_CONFIRM,
+  PALETTE, PRESETS, SAMPLES, SEARCH_DEBOUNCE_MS, STORAGE_KEY,
+} from "./constants.js";
 
 let state = null;      // { tabs: [...], activeTabId }
+
 let tabSeq = 0;
+
 let uidSeq = 0;
+
 const runtime = new Map();  // tab.id -> {raw, data, tagOrder, start, end, seq, abort}
+
 let chart = null;           // uPlot instance for the active tab
+
 let scooterEls = [];        // [{line, box}] for the active tab
+
 let saveTimer = null;
+
 let zoomTimer = null;
 
 function newUid() {
@@ -223,8 +166,6 @@ function rt(tab) {
   }
   return r;
 }
-
-/* ------------------------------------------------------------------ helpers */
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -429,8 +370,6 @@ function showNotice(msg, ms = 4000) {
   setTimeout(() => showError(null), ms);
 }
 
-/* --------------------------------------------------------------------- API */
-
 // Returns the whole body: besides the hits it may carry a note explaining an
 // incomplete answer, e.g. a description scan that ran out of budget.
 async function apiSearchTags(q, signal) {
@@ -444,6 +383,7 @@ async function apiSearchTags(q, signal) {
 // Favourite record maps, shared across tags and stored server-side in the env
 // file. Real tags have 30+ maps but only a few are ever used.
 let favoriteMaps = [];
+
 let favoritesPromise = null;
 
 function ensureFavorites() {
@@ -584,8 +524,6 @@ function rebuildJoined(tab, r) {
     : tables.length === 1 ? tables[0] : uPlot.join(tables);
 }
 
-/* ------------------------------------------------------------------- chart */
-
 function chartSize() {
   const wrap = $("chart-wrap");
   return { width: Math.max(200, wrap.clientWidth - 8), height: Math.max(150, wrap.clientHeight - 8) };
@@ -628,6 +566,7 @@ function xAxisValues(u, splits, axisIdx, foundSpace, foundIncr) {
    height, so they are not round numbers - exactly like Process Explorer. */
 
 const STACKED_FONT = '11px -apple-system, "Segoe UI", Roboto, sans-serif';
+
 const measureCtx = document.createElement("canvas").getContext("2d");
 
 function stackedDecimals(span) {
@@ -901,8 +840,6 @@ function appendValueRows(parent, tab, r, t) {
   }
 }
 
-/* ------------------------------------------------------------- time ranges */
-
 function pushHistory(tab) {
   tab.history = tab.history || [];
   tab.history.push(JSON.parse(JSON.stringify(tab.range)));
@@ -1074,8 +1011,6 @@ function propagateRange(fromTab) {
   }
 }
 
-/* -------------------------------------------------------------------- tabs */
-
 function renderTabs() {
   const container = $("tabs");
   container.innerHTML = "";
@@ -1210,8 +1145,6 @@ function setLinked(checked) {
   }
   saveState();
 }
-
-/* -------------------------------------------------------------------- tags */
 
 function nextColor(tab) {
   const used = new Set(tab.tags.map((t) => t.color));
@@ -1455,8 +1388,6 @@ function renderTagbar() {
   }
 }
 
-/* -- tag settings table --------------------------------------------------- */
-
 // A row is a grid of its own rather than one grid for the whole table, so a
 // row can carry hover, a border and a drag ghost. The columns still line up
 // because every row uses this same template.
@@ -1479,6 +1410,7 @@ const TAG_COLUMNS = [
 ];
 
 const TAG_TABLE_DEFAULT_H = 200;
+
 const TAG_TABLE_MIN_H = 96;
 
 // Never so tall that the chart it is docked under has nothing left.
@@ -1490,6 +1422,7 @@ function clampTableHeight(h) {
 // Rows are kept and patched rather than rebuilt, so an edit in progress keeps
 // its caret, its selection and its undo history. tagRowEls maps uid -> row.
 let tagRowEls = new Map();
+
 let tagRowsTabId = null;
 
 function renderTagTable() {
@@ -1798,8 +1731,6 @@ function focusTagCell(uid, col) {
   return control;
 }
 
-/* -- row reordering ------------------------------------------------------- */
-
 // Tag order decides how the stacked axis gutter piles its values and the order
 // of the scooter readouts, so it is worth being able to group related tags.
 function moveTag(tab, from, to) {
@@ -1864,8 +1795,6 @@ function beginRowDrag(e, uid) {
   e.target.addEventListener("pointermove", onMove);
   e.target.addEventListener("pointerup", onUp);
 }
-
-/* -- table keyboard navigation -------------------------------------------- */
 
 // The global shortcuts must stand aside for an edit in progress. Form controls
 // were always exempt; the table adds buttons - colour, star, auto, remove -
@@ -1972,8 +1901,6 @@ function toggleTagTable() {
   saveState();
 }
 
-/* -- tag settings --------------------------------------------------------- */
-
 // Every tag setting goes through here, so the pills, the settings table and
 // anything else that edits a tag agree on what a change actually costs:
 // colour and scale only redraw, while sampling, interval and map mean a new
@@ -2048,8 +1975,6 @@ document.addEventListener("pointerdown", (e) => {
     hideContextMenu();
   }
 });
-
-/* ------------------------------------------------------------ context menu */
 
 // Opens #context-menu at the event position with the given items, where an
 // item is [label, shortcut, action, disabled] and null is a separator.
@@ -2153,8 +2078,6 @@ function showContextMenu(e, tAtCursor) {
   openMenu(e, items);
 }
 
-/* ------------------------------------------------------- tag clipboard */
-
 // Fallback for when the system clipboard is unavailable or unreadable.
 let tagClipboard = null;
 
@@ -2227,8 +2150,6 @@ function showPillMenu(e, tag) {
 }
 
 function hideContextMenu() { $("context-menu").classList.add("hidden"); }
-
-/* ---------------------------------------------------------------- scooters */
 
 function addScooterAt(t) {
   const tab = activeTab();
@@ -2366,8 +2287,6 @@ function positionScooter(index) {
   const top = 8 + index * 26 + (scooter.dy || 0);
   els.box.style.top = `${Math.min(maxTop, Math.max(0, top))}px`;
 }
-
-/* -------------------------------------------------------- export / analysis */
 
 // CSV dialect: semicolon separator + decimal comma, so the file opens
 // directly in Norwegian Excel. Values keep full precision (no fmtVal).
@@ -2512,11 +2431,12 @@ function showAverageDialog(t0, t1) {
   dialog.showModal();
 }
 
-/* ------------------------------------------------------------------ search */
-
 let searchTimer = null;
+
 let searchSelection = -1;
+
 let searchItems = [];
+
 let searchAbort = null;
 
 function renderSearchHint(text) {
@@ -2702,8 +2622,6 @@ function plottedCopies(tab, hit) {
   return tab.tags.filter((t) => normalizeTagName(t.name) === name);
 }
 
-/* ----------------------------------------------------------------- toolbar */
-
 function renderToolbar() {
   const tab = activeTab();
 
@@ -2736,8 +2654,6 @@ function renderToolbar() {
   $("link-ranges-cb").checked = !!tab.linked;
 }
 
-/* ------------------------------------------------------------- navigator */
-
 // The band under the chart shows a wider span with the visible window drawn on
 // top, so a window that landed slightly wrong can be dragged into place.
 //
@@ -2746,7 +2662,9 @@ function renderToolbar() {
 // rebuilt when the window leaves it or the span changes materially. Panning
 // inside the context is free, and the band can be switched off entirely.
 const NAV_CONTEXT_FACTOR = 8;   // context span, as a multiple of the window
+
 const NAV_POINTS = 240;         // coarse on purpose: this is a thumbnail
+
 const NAV_HANDLE_PX = 10;       // grab width of the two edge handles
 
 let navDrag = null;             // {mode, startX, start, end} while dragging
@@ -2986,14 +2904,14 @@ function initNavigator() {
   });
 }
 
-/* -- time fields and calendar --------------------------------------------- */
-
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
+
 // Monday first, as the rest of Europe reads a calendar.
 const WEEKDAY_NAMES = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 let calendarField = null;   // the input the open calendar belongs to
+
 let calendarMonth = null;   // first of the month on show
 
 // Arrow keys step the unit under the caret, so the field keeps the one thing
@@ -3214,8 +3132,6 @@ function initToolbar() {
   });
 }
 
-/* -------------------------------------------------------------- save / open */
-
 const CONFIG_VERSION = 4;
 
 // A complete snapshot of a plot: everything needed to recreate it exactly,
@@ -3328,8 +3244,6 @@ function initDialogs() {
   $("avg-close").addEventListener("click", () => $("avg-dialog").close());
 }
 
-/* -- plots API ----------------------------------------------------------- */
-
 async function apiListPlots() {
   const resp = await fetch("/api/plots");
   return resp.ok ? (await resp.json()).plots : [];
@@ -3375,6 +3289,7 @@ async function saveCurrentPlot() {
 }
 
 let plotList = [];        // last listing from the server
+
 let labelFilter = null;   // active label chip, null = show all
 
 async function openPlotDialog() {
@@ -3485,8 +3400,6 @@ async function openAllListedPlots() {
   if (skipped) showError(`Opened ${tabs.length} plot(s), skipped ${skipped}`);
 }
 
-/* -- share links ---------------------------------------------------------- */
-
 // Everything the plot needs travels in the URL fragment: there is no shared
 // server to store links on, and a fragment is never sent to the server.
 function b64urlEncode(bytes) {
@@ -3561,8 +3474,6 @@ async function openSharedPlot() {
   }
 }
 
-/* -- import / export ------------------------------------------------------ */
-
 const BUNDLE_FORMAT = "ip21-explorer-plots";
 
 // Downloads the plots currently listed (i.e. matching the filter) as one file.
@@ -3619,8 +3530,6 @@ async function importPlotFile(file) {
   if (skipped) showError(`Imported ${saved} plot(s), skipped ${skipped}`);
   openPlotDialog();
 }
-
-/* -------------------------------------------------------------------- init */
 
 function renderAll() {
   renderTabs();
