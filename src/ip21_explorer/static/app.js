@@ -811,7 +811,7 @@ function renderChart() {
   const target = $("chart");
 
   if (chart) { chart.destroy(); chart = null; }
-  scooterEls = [];
+  forgetScooterEls();
   target.innerHTML = "";
   $("hover-box").classList.add("hidden");
 
@@ -2235,6 +2235,12 @@ function addScooterAt(t) {
   tab.scooters.push({ t });
   mountScooters();
   saveState();
+}
+
+// Scooter elements live in the chart's overlay and go when the chart is
+// destroyed, so this only drops the references to them.
+function forgetScooterEls() {
+  scooterEls = [];
 }
 
 function mountScooters() {
