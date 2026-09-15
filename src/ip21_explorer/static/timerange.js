@@ -1,9 +1,10 @@
 /* Time windows: presets, zoom history, live mode and linked tabs. */
 
-import { chart, loadData } from "./app.js";
+import { chart } from "./app.js";
 import {
   DATA_MAX_POINTS, HISTORY_MAX, LIVE_MAX_POINTS, MIN_SPAN_S, PRESETS,
 } from "./constants.js";
+import { loadData } from "./data.js";
 import { renderNavigator } from "./navigator.js";
 import { activeTab, rt, runtime, saveState, state } from "./state.js";
 import { renderToolbar } from "./toolbar.js";
