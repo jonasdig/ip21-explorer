@@ -1,6 +1,5 @@
 /* The uPlot chart: options, rendering, cursor readout and drag-zoom. */
 
-import { tagDisplay } from "./app.js";
 import {
   drawStackedGrid, drawStackedLabels, stackedGutter,
 } from "./axis-gutter.js";
@@ -11,6 +10,7 @@ import {
   addScooterAt, forgetScooterEls, mountScooters, positionScooters,
 } from "./scooters.js";
 import { activeTab, byUid, reqName, rt } from "./state.js";
+import { tagDisplay } from "./tags.js";
 import { setAbsoluteRange } from "./timerange.js";
 import { $, el, fmtTime, fmtVal, nearestValue, pad2 } from "./util.js";
 

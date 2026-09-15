@@ -1,8 +1,8 @@
 /* Keyboard movement inside the tag settings table. */
 
-import { moveTag } from "./app.js";
 import { activeTab } from "./state.js";
 import { focusTagCell } from "./tag-table.js";
+import { moveTag } from "./tags.js";
 import { $ } from "./util.js";
 
 // The global shortcuts must stand aside for an edit in progress. Form controls

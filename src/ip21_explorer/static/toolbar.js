@@ -1,6 +1,5 @@
 /* The toolbar's buttons and the global keyboard shortcuts. */
 
-import { ensureDescriptions, renderTags } from "./app.js";
 import { chart, currentXRange, renderChart } from "./chart.js";
 import { copyTags, pasteTags, tagsFromClipText } from "./clipboard.js";
 import { LABEL_MODES, LIVE_INTERVAL_MS, PRESETS } from "./constants.js";
@@ -10,6 +9,7 @@ import { activeTab, saveState, state } from "./state.js";
 import { addTab, setLinked } from "./tabs.js";
 import { isEditingContext, onTagTableKey } from "./tag-table-keys.js";
 import { beginTableResize, toggleTagTable } from "./tag-table.js";
+import { ensureDescriptions, renderTags } from "./tags.js";
 import { initTimeFields } from "./timefields.js";
 import {
   jumpToNow, liveDisabledReason, liveTick, popHistory, resolveRange,

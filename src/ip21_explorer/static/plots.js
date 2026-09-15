@@ -2,7 +2,7 @@
 
 import { downloadText } from "./analysis.js";
 import { apiDeletePlot, apiGetPlot, apiListPlots, apiSavePlot } from "./api.js";
-import { nextColor, renderAll } from "./app.js";
+import { renderAll } from "./app.js";
 import { OPEN_ALL_CONFIRM } from "./constants.js";
 import { copyShareLink } from "./share.js";
 import {
@@ -10,6 +10,7 @@ import {
   saveState, state,
 } from "./state.js";
 import { addTab, renderTabs } from "./tabs.js";
+import { nextColor } from "./tags.js";
 import { $, el, fmtTime, showError } from "./util.js";
 
 const CONFIG_VERSION = 4;

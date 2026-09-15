@@ -1,7 +1,7 @@
 /* CSV export and averages between scooters. */
 
-import { tagDisplay, tagLabel } from "./app.js";
 import { activeTab, rt } from "./state.js";
+import { tagDisplay, tagLabel } from "./tags.js";
 import { $, el, fmtTime, fmtVal, pad2, showError } from "./util.js";
 
 // CSV dialect: semicolon separator + decimal comma, so the file opens

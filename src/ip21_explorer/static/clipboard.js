@@ -1,7 +1,7 @@
 /* Copying and pasting tags as JSON on the system clipboard. */
 
-import { insertTags } from "./app.js";
 import { activeTab, makeTag } from "./state.js";
+import { insertTags } from "./tags.js";
 import { showError } from "./util.js";
 
 // Fallback for when the system clipboard is unavailable or unreadable.

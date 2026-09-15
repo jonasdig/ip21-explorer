@@ -3,13 +3,13 @@
 import {
   exportCsvRange, exportTags, outermostScooters, showAverageDialog,
 } from "./analysis.js";
-import { duplicateTag, removeTag, setTagField } from "./app.js";
 import { currentXRange } from "./chart.js";
 import { copyTags, pasteFromClipboard } from "./clipboard.js";
 import { PALETTE } from "./constants.js";
 import { addScooterAt, mountScooters } from "./scooters.js";
 import { activeTab, rt, saveState } from "./state.js";
 import { focusTagCell } from "./tag-table.js";
+import { duplicateTag, removeTag, setTagField } from "./tags.js";
 import { popHistory, resetZoom } from "./timerange.js";
 import { $, el } from "./util.js";
 

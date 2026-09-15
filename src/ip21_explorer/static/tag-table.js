@@ -1,13 +1,13 @@
 /* The tag settings table docked under the chart. */
 
 import { favoriteMaps, orderedMaps, saveFavorites } from "./api.js";
-import {
-  autoScale, ensureMaps, moveTag, removeTag, renderTags, setAxisOwner,
-  setTagField, tagDisplay,
-} from "./app.js";
 import { INTERVALS, SAMPLES } from "./constants.js";
 import { openSwatchMenu } from "./menu.js";
 import { activeTab, byUid, saveState, state } from "./state.js";
+import {
+  autoScale, ensureMaps, moveTag, removeTag, renderTags, setAxisOwner,
+  setTagField, tagDisplay,
+} from "./tags.js";
 import { renderToolbar } from "./toolbar.js";
 import { $, el } from "./util.js";
 

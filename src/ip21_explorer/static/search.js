@@ -1,9 +1,9 @@
 /* Tag search with a result list that stays open for picking many. */
 
 import { apiSearchTags } from "./api.js";
-import { insertTags, removeTags } from "./app.js";
 import { MIN_QUERY_LEN, SEARCH_DEBOUNCE_MS } from "./constants.js";
 import { activeTab, makeTag, normalizeTagName } from "./state.js";
+import { insertTags, removeTags } from "./tags.js";
 import { $, el } from "./util.js";
 
 let searchTimer = null;
