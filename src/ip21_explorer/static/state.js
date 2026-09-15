@@ -1,7 +1,7 @@
 /* The persisted app state: tabs and tags, their migration, and localStorage. */
 
-import { TAG_TABLE_DEFAULT_H, clampTableHeight } from "./app.js";
 import { INTERVALS, LABEL_MODES, STORAGE_KEY } from "./constants.js";
+import { TAG_TABLE_DEFAULT_H, clampTableHeight } from "./tag-table.js";
 
 export let state = null;      // { tabs: [...], activeTabId }
 let tabSeq = 0;
