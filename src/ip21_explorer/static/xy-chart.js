@@ -9,7 +9,7 @@
 import { chartSize, renderChart, scaleRangeFn } from "./chart.js";
 import { showContextMenu } from "./menu.js";
 import { alignOnto, unionTimes } from "./resample.js";
-import { activeTab, byUid, rt, saveState } from "./state.js";
+import { activeTab, rt, saveState } from "./state.js";
 import { tagLabel } from "./tags.js";
 import { renderToolbar } from "./toolbar.js";
 import { $, el, fmtTime, fmtVal } from "./util.js";
@@ -46,21 +46,20 @@ function xyGradient() {
   return `linear-gradient(to top, ${stops.join(", ")})`;
 }
 
-// Which two tags are plotted. The stored pair when it still holds data, else
-// the first two rows that have any - so switching to XY always shows
-// something, and the toolbar button says which two it picked.
-export function xyPairTags(tab, r) {
-  const has = (uid) => r.raw && r.raw[uid] && r.raw[uid].t.length;
-  const usable = tab.tags.filter((t) => has(t.uid));
-  if (!usable.length) return null;
-  const pick = (uid, skip) => {
-    const stored = byUid(tab, uid);
-    if (stored && has(stored.uid) && stored !== skip) return stored;
-    return usable.find((t) => t !== skip) || null;
-  };
-  const x = pick(tab.xUid, null);
-  const y = pick(tab.yUid, x);
-  return x && y ? { x, y } : null;
+// Which two tags are plotted, or why none are. The tick box in the table is
+// the choice: it already means "this one is on the plot", and a plot of one
+// tag against another can only mean two of them. Row order settles which is
+// which, and xUid only says whether they have been swapped round.
+export function xyPairTags(tab) {
+  const shown = tab.tags.filter((t) => t.visible !== false);
+  if (shown.length < 2) {
+    return { hint: "XY: tick two tags in the table to plot them against each other." };
+  }
+  if (shown.length > 2) {
+    return { hint: `XY: ${shown.length} tags are ticked - untick all but two.` };
+  }
+  const x = shown.find((t) => t.uid === tab.xUid) || shown[0];
+  return { x, y: shown.find((t) => t !== x) };
 }
 
 // One point per timestamp either tag has, dropped where either side has
@@ -161,8 +160,8 @@ function onXyCursor(u) {
   if (idx == null) { box.classList.add("hidden"); return; }
   const tab = activeTab();
   const r = rt(tab);
-  const pair = xyPairTags(tab, r);
-  if (!pair) { box.classList.add("hidden"); return; }
+  const pair = xyPairTags(tab);
+  if (!pair.x) { box.classList.add("hidden"); return; }
   const [xs, ys, ts] = u.data[1];
 
   box.innerHTML = "";
@@ -262,33 +261,22 @@ export function toggleXyMode() {
   saveState();
 }
 
-// Picking an axis is also how the XY plot is entered: asking for a tag on the
-// x axis and then being left in the trend view would be an odd sort of no.
-export function setXyTag(tab, uid, axis) {
-  if (axis === "x") {
-    tab.xUid = uid;
-    if (tab.yUid === uid) tab.yUid = null;
-  } else {
-    tab.yUid = uid;
-    if (tab.xUid === uid) tab.xUid = null;
-  }
-  tab.plotMode = "xy";
+// Nothing but row order distinguishes the two ticked rows, so remembering
+// which one is on the x axis is the whole of "swap the axes".
+export function swapXyAxes() {
+  const tab = activeTab();
+  const pair = xyPairTags(tab);
+  if (!pair.x) return;
+  tab.xUid = pair.y.uid;
   renderToolbar();
   renderChart();
   saveState();
 }
 
-// The button says which two tags are on show, because the pair can be decided
-// by fallback rather than by the user. Before the first answer lands there is
-// no data to decide with, so the names alone have to do.
+// The button names the pair, so which two rows are plotted - and which way
+// round - can be read without counting tick boxes.
 export function xyModeLabel(tab) {
   if (!isXyMode(tab)) return "XY: off";
-  const pair = xyPairTags(tab, rt(tab)) || namedPair(tab);
-  return pair ? `XY: ${tagLabel(tab, pair.x)} \u2192 ${tagLabel(tab, pair.y)}` : "XY: on";
-}
-
-function namedPair(tab) {
-  const x = byUid(tab, tab.xUid) || tab.tags[0];
-  const y = byUid(tab, tab.yUid) || tab.tags.find((t) => t !== x);
-  return x && y ? { x, y } : null;
+  const pair = xyPairTags(tab);
+  return pair.x ? `XY: ${tagLabel(tab, pair.x)} \u2192 ${tagLabel(tab, pair.y)}` : "XY: on";
 }

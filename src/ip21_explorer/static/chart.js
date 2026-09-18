@@ -170,13 +170,15 @@ export function renderChart() {
 
   if (isXyMode(tab)) {
     // No scooters and no stacked gutter here: both of them are about time.
-    const pair = xyPairTags(tab, r);
-    const pairs = pair && xyPairs(tab, r, pair);
+    // The pair is whatever is ticked in the table, so the button is repainted
+    // from here: ticking a row renders the chart, not the toolbar.
+    const pair = xyPairTags(tab);
+    $("xy-mode").textContent = xyModeLabel(tab);
+    if (pair.hint) { showHint(pair.hint); return; }
+    const pairs = xyPairs(tab, r, pair);
     if (!pairs) { showHint("XY needs two tags with data in this window."); return; }
     chart = new uPlot(xyOpts(tab, r, pair, pairs), pairs.data, target);
     renderXyLegend(r);
-    // The pair can be settled by fallback, and only now is it known.
-    $("xy-mode").textContent = xyModeLabel(tab);
     return;
   }
 

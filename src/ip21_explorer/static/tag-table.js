@@ -2,6 +2,7 @@
 
 import { favoriteMaps, orderedMaps, saveFavorites } from "./api.js";
 import { isComputed } from "./computed.js";
+import { isXyMode } from "./xy-chart.js";
 import { INTERVALS, SAMPLES } from "./constants.js";
 import { openSwatchMenu, showTagMenu } from "./menu.js";
 import { activeTab, byUid, makeTag, normalizeTagName, saveState, state } from "./state.js";
@@ -134,7 +135,6 @@ function buildTagRow(uid) {
 
   const visible = el("input");
   visible.type = "checkbox";
-  visible.title = "Show this tag on the plot";
   visible.addEventListener("change", () =>
     setTagField(activeTab(), tagOf(), "visible", visible.checked));
   cellOf(row, "visible").appendChild(mark(visible, "visible"));
@@ -241,7 +241,14 @@ function updateTagRow(tab, tag, row) {
   };
 
   row.classList.toggle("hidden-tag", tag.visible === false);
-  set("visible", (c) => { c.checked = tag.visible !== false; });
+  set("visible", (c) => {
+    c.checked = tag.visible !== false;
+    // Same box, same meaning - "this one is on the plot" - but a plot of one
+    // tag against another can only hold two of them.
+    c.title = isXyMode(tab)
+      ? "Use in the XY plot - tick exactly two"
+      : "Show this tag on the plot";
+  });
   set("axis", (c) => { c.checked = tab.axisUid === tag.uid; c.name = `axis-owner-${tab.id}`; });
   set("color", (c) => { c.style.background = tag.color || "transparent"; });
   set("sample", (c) => { c.value = tag.sample; });

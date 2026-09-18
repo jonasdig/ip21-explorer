@@ -32,8 +32,10 @@ export function tabToConfig(tab, name) {
     plotMode: tab.plotMode === "xy" ? "xy" : "time",
     // Indices, like axisIndex: a repeated tag name cannot be told apart by
     // name, and a formula's "name" is an expression.
+    // Index, like axisIndex: a repeated tag name cannot be told apart by name,
+    // and a formula's "name" is an expression. The y tag is the other ticked
+    // row, so it needs nothing of its own.
     xIndex: tab.tags.findIndex((t) => t.uid === tab.xUid),
-    yIndex: tab.tags.findIndex((t) => t.uid === tab.yUid),
     live: !!tab.live,
     scooters: (tab.scooters || []).map((sc) => ({ t: sc.t, dy: sc.dy || 0 })),
     range: tab.range.preset
@@ -84,7 +86,6 @@ function configToTab(name, config) {
   tab.linked = config.linked === true;
   tab.plotMode = config.plotMode === "xy" ? "xy" : "time";
   tab.xUid = (tab.tags[config.xIndex] || {}).uid || null;
-  tab.yUid = (tab.tags[config.yIndex] || {}).uid || null;
   tab.live = config.live === true;
   tab.scooters = Array.isArray(config.scooters)
     ? config.scooters.filter((sc) => sc && typeof sc.t === "number")

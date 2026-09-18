@@ -55,11 +55,14 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
 - **XY plot with a time colour**: one tag against another, every point coloured
   by when it is and joined by a faint trail in time order, so drift shows up as
   the cloud moving rather than as two trends that have to be compared by eye.
-  Right-click a row for *Use as X axis* / *Use as Y axis*; the colour bar says
-  which colour is when, and the ramp always spans the loaded window, so a
-  colour means the same moment wherever it appears. Drag to zoom the two value
-  axes, double-click to undo it; the time window is still chosen with the
-  presets, the time fields and the navigator
+  The pair is the table's own show column: tick exactly two rows and those two
+  are plotted, the upper one on the x axis — tick more or fewer and the plot
+  says so instead of guessing. *Swap X and Y axes* sits in the right-click menu
+  of both the plot and a row. The colour bar says which colour is when, and the
+  ramp always spans the loaded window, so a colour means the same moment
+  wherever it appears. Drag to zoom the two value axes, double-click to undo
+  it; the time window is still chosen with the presets, the time fields and the
+  navigator
 - **Individual y-scale per tag** (auto or manual min/max); Process
   Explorer-style stacked axis gutter by default (all tags share a few
   gridlines, values stacked in tag colors), with a toggle cycling to

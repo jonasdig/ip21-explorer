@@ -11,7 +11,7 @@ import { activeTab, rt, saveState } from "./state.js";
 import { focusTagCell } from "./tag-table.js";
 import { duplicateTag, removeTag, setTagField } from "./tags.js";
 import { popHistory, resetZoom } from "./timerange.js";
-import { setXyTag } from "./xy-chart.js";
+import { isXyMode, swapXyAxes, xyPairTags } from "./xy-chart.js";
 import { $, el } from "./util.js";
 
 // Opens #context-menu at the event position with the given items, where an
@@ -88,6 +88,10 @@ export function showContextMenu(e, tAtCursor) {
   const mkItem = (label, key, action, disabled) =>
     items.push([label, key, action, disabled]);
 
+  if (isXyMode(tab)) {
+    mkItem("Swap X and Y axes", null, swapXyAxes, !xyPairTags(tab).x);
+    items.push(null);
+  }
   // tAtCursor is null in the XY plot: there is no time under the pointer
   // there, and a scooter would have nothing to stand on.
   if (tAtCursor != null) {
@@ -128,8 +132,7 @@ export function showTagMenu(e, tag) {
     ["Duplicate tag", null, () => duplicateTag(tag.uid)],
     ["Paste tags", "Ctrl+V", pasteFromClipboard],
     null,
-    ["Use as X axis", null, () => setXyTag(tab, tag.uid, "x")],
-    ["Use as Y axis", null, () => setXyTag(tab, tag.uid, "y")],
+    ["Swap X and Y axes", null, swapXyAxes, !isXyMode(tab) || !xyPairTags(tab).x],
     null,
     ["Remove tag", null, () => removeTag(tag.uid)],
   ]);
