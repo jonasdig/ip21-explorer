@@ -32,11 +32,18 @@ function scaleRangeFn(tag) {
 
 // 24h clock tick labels; a tick where the local date changes (and the first
 // tick) carries the date on a second line.
+//
+// The year is spelled out only when the window needs it, which is exactly when
+// its two ends fall in different calendar years: anything wider than a year
+// always does, and eleven months inside one year never does.
 function xAxisValues(u, splits, axisIdx, foundSpace, foundIncr) {
   let prevDay = null;
+  const withYear = new Date(u.scales.x.min * 1000).getFullYear()
+    !== new Date(u.scales.x.max * 1000).getFullYear();
   return splits.map((t) => {
     const d = new Date(t * 1000);
-    const dayLabel = `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}`;
+    const dayLabel = `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}` +
+      (withYear ? `.${pad2(d.getFullYear() % 100)}` : "");
     let label;
     if (foundIncr >= 86400) {
       label = dayLabel;
