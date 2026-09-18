@@ -336,7 +336,7 @@ export function setTagFields(tab, tag, patch) {
       if (recompute(tab, rt(tab))) rebuildJoined(tab, rt(tab));
       redraw = true;
     } else if (key === "lineStyle" || key === "lineWidth" || key === "points" ||
-               key === "symbol") {
+               key === "symbol" || key === "pointColor") {
       // How the trace is drawn: nothing to fetch, nothing to recompute.
       tag[key] = value;
       redraw = true;

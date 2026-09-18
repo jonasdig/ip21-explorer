@@ -41,10 +41,10 @@ export function xyColor(frac) {
     `${Math.round(a[2] + (b[2] - a[2]) * k)})`;
 }
 
-function xyGradient() {
+export function xyGradient(direction = "to top") {
   const stops = VIRIDIS.map((c, i) =>
     `rgb(${c[0]},${c[1]},${c[2]}) ${Math.round((i / (VIRIDIS.length - 1)) * 100)}%`);
-  return `linear-gradient(to top, ${stops.join(", ")})`;
+  return `linear-gradient(${direction}, ${stops.join(", ")})`;
 }
 
 // What is plotted, or why nothing is. The tick box in the table is the
@@ -86,12 +86,14 @@ function pairUp(r, x, y) {
   const [xv, yv] = alignOnto(inputs, ts);
   const xs = [], ys = [], stamps = [], colors = [];
   const span = (r.end - r.start) || 1;
+  // A series in its row colour says which it is rather than when.
+  const fixed = y.pointColor === "fixed" ? y.color : null;
   for (let i = 0; i < ts.length; i++) {
     if (xv[i] == null || yv[i] == null) continue;
     xs.push(xv[i]);
     ys.push(yv[i]);
     stamps.push(ts[i]);
-    colors.push(xyColor((ts[i] - r.start) / span));
+    colors.push(fixed || xyColor((ts[i] - r.start) / span));
   }
   return xs.length ? { cols: [xs, ys, stamps], colors } : null;
 }
@@ -258,7 +260,7 @@ function onXyCursor(u) {
   box.innerHTML = "";
   const head = el("div", "time");
   const when = el("span", "dot");
-  when.style.background = xyColor((ts[idx] - r.start) / ((r.end - r.start) || 1));
+  when.style.background = one.colors[idx];
   head.appendChild(when);
   head.appendChild(el("span", null, fmtTime(ts[idx], true)));
   box.appendChild(head);
@@ -338,6 +340,10 @@ export function xyOpts(tab, r, set, plot) {
 export function renderXyLegend(r, plot) {
   const bar = $("color-bar");
   bar.innerHTML = "";
+  // The ramp only means something while some series is coloured by time; the
+  // series list is needed whenever a colour or a symbol has to be told apart.
+  const anyTime = !plot || plot.series.some((one) => one.tag.pointColor !== "fixed");
+  const anyFixed = plot && plot.series.some((one) => one.tag.pointColor === "fixed");
   const ramp = el("div", "ramp");
   const strip = el("div", "strip");
   strip.style.background = xyGradient();
@@ -347,8 +353,8 @@ export function renderXyLegend(r, plot) {
   labels.appendChild(el("span", null, fmtTime(r.start + (r.end - r.start) / 2, false)));
   labels.appendChild(el("span", null, fmtTime(r.start, false)));
   ramp.appendChild(labels);
-  bar.appendChild(ramp);
-  if (plot && plot.series.length > 1) {
+  if (anyTime) bar.appendChild(ramp);
+  if (plot && (plot.series.length > 1 || anyFixed)) {
     const list = el("div", "series");
     const tab = activeTab();
     for (const one of plot.series) {

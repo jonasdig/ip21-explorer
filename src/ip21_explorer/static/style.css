@@ -353,6 +353,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .popover.menu .opts button.on { border-color: var(--accent); background: #17455c; }
 .popover.menu .opts .stroke { display: block; width: 16px; border-top-color: currentColor; }
 .popover.menu .opts.check { gap: 6px; cursor: pointer; font-size: 12px; }
+.popover.menu .opts .chip { display: block; width: 26px; height: 8px; border-radius: 2px; }
 .popover.menu .opts.check input { margin: 0; accent-color: var(--accent); }
 
 /* -- scooters ------------------------------------------------------------ */

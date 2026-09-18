@@ -12,7 +12,9 @@ import { focusTagCell } from "./tag-table.js";
 import { duplicateTag, removeTag, setTagField, tagLabel } from "./tags.js";
 import { popHistory, resetZoom } from "./timerange.js";
 import { $, el } from "./util.js";
-import { isXyMode, setXyAxis, symbolGlyph, xySeriesTags } from "./xy-chart.js";
+import {
+  isXyMode, setXyAxis, symbolGlyph, xyGradient, xySeriesTags,
+} from "./xy-chart.js";
 
 // Opens #context-menu at the event position with the given items, where an
 // item is [label, shortcut, action, disabled] and null is a separator.
@@ -129,6 +131,16 @@ export function openSwatchMenu(anchor, tab, tag) {
   optionRow("XY symbol", [
     [null, () => el("span", null, "auto"), "One per series, by its place among them"],
   ].concat(symbols), "symbol", tag.symbol || null);
+  // Whether this series' XY points say when (the ramp) or which (its colour).
+  const swatchOf = (background) => () => {
+    const chip = el("span", "chip");
+    chip.style.background = background;
+    return chip;
+  };
+  optionRow("XY colour", [
+    ["time", swatchOf(xyGradient("to right")), "Colour each point by its time"],
+    ["fixed", swatchOf(tag.color || PALETTE[0]), "Every point in this row's colour"],
+  ], "pointColor", tag.pointColor === "fixed" ? "fixed" : "time");
 
   const rect = anchor.getBoundingClientRect();
   placeMenu(menu, rect.left, rect.bottom + 4);

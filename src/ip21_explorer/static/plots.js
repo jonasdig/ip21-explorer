@@ -61,6 +61,7 @@ function configToTab(name, config) {
       lineWidth: t.lineWidth,
       points: t.points,
       symbol: t.symbol,
+      pointColor: t.pointColor,
     });
     tag.map = t.map ?? null;
     tag.color = t.color || null;

@@ -62,6 +62,7 @@ export function makeTag(info) {
     lineWidth: info.lineWidth || "normal",
     points: info.points === true,     // dots on the samples in the trend view
     symbol: info.symbol || null,      // XY point symbol, null = by position
+    pointColor: info.pointColor === "fixed" ? "fixed" : "time", // XY points: time ramp or row colour
   };
 }
 
@@ -117,6 +118,7 @@ function migrateTab(tab, oldState) {
     tag.lineWidth = tag.lineWidth || "normal";
     tag.points = tag.points === true;
     tag.symbol = tag.symbol || null;
+    tag.pointColor = tag.pointColor === "fixed" ? "fixed" : "time";
   }
   if (!tab.axisUid && tab.axisTag) {
     const match = tab.tags.find((t) => t.name === normalizeTagName(tab.axisTag));

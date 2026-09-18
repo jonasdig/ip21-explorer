@@ -69,7 +69,8 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   the navigator
 - **Line style per tag**, from the colour menu in the table: solid, dashed,
   dotted or no line (dots only), thin to thick, optional dots on every sample
-  in the trend view, and the XY point symbol
+  in the trend view, the XY point symbol, and whether that series' XY points
+  are coloured by time or all drawn in the row's own colour
 - **Individual y-scale per tag** (auto or manual min/max); Process
   Explorer-style stacked axis gutter by default (all tags share a few
   gridlines, values stacked in tag colors), with a toggle cycling to
