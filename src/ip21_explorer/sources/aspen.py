@@ -27,6 +27,11 @@ MIN_QUERY_LEN = 2
 # only fills in the first few, for display.
 MAX_DESCRIPTIONS = 15
 DESCRIPTION_WORKERS = 8
+# tagreader reads the tags of one call strictly one after another - a request
+# and a metadata lookup per tag - so a formula over five tags waited for five
+# round trips in a row. They are read side by side instead, this many at once.
+# Overridden from IP21_READ_WORKERS; 1 is the old one-call-for-all behaviour.
+READ_WORKERS = 4
 # How many of the name-matched candidates get a description lookup, when a
 # multi-term query needs descriptions. One request per uncached tag, so this is
 # the number that has to stay small. Overridden from IP21_DESC_SCAN_MAX.
@@ -79,6 +84,7 @@ class AspenSource:
         verify_ssl: bool = True,
         timezone_name: str = "Europe/Oslo",
         desc_scan_max: int = DESC_SCAN_MAX,
+        read_workers: int = READ_WORKERS,
     ):
         try:
             from tagreader import IMSClient, ReaderType
@@ -108,6 +114,7 @@ class AspenSource:
         self._unit_cache: Dict[str, str] = {}
         self._desc_cache: Dict[str, str] = {}
         self._desc_scan_max = max(0, desc_scan_max)
+        self._read_workers = max(1, int(read_workers))
         # Set by search_tags when the answer it gave is incomplete; the API
         # passes it on so the dropdown can say so.
         self.search_note: Optional[str] = None
@@ -302,15 +309,29 @@ class AspenSource:
     def _read_frame(
         self, tags: List[str], start: float, end: float, reader_type, interval_s: float
     ) -> Dict[str, Series]:
-        df = self._client.read(
-            tags,
-            start_time=datetime.fromtimestamp(start, tz=timezone.utc),
-            end_time=datetime.fromtimestamp(end, tz=timezone.utc),
-            ts=int(interval_s),
-            read_type=reader_type,
-        )
+        def read(some: List[str]):
+            return self._client.read(
+                some,
+                start_time=datetime.fromtimestamp(start, tz=timezone.utc),
+                end_time=datetime.fromtimestamp(end, tz=timezone.utc),
+                ts=int(interval_s),
+                read_type=reader_type,
+            )
+
+        if self._read_workers == 1 or len(tags) == 1:
+            df = read(tags)
+            frames = {tag: df for tag in tags}
+        else:
+            # One tag per call, side by side, on the same client the parallel
+            # description lookups already share. The answer is the same frame
+            # per tag that one call for all of them would have been cut into.
+            workers = min(self._read_workers, len(tags))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                frames = dict(zip(tags, pool.map(lambda tag: read([tag]), tags)))
+
         result: Dict[str, Series] = {}
         for tag in tags:
+            df = frames[tag]
             # tagreader names each column after the tag string it was given,
             # "TAG;MAP" included.
             if tag not in df.columns:

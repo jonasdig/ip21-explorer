@@ -23,6 +23,9 @@ class Settings:
     # query pairs part of a tag name with a description word. Each uncached
     # description is one IP21 request (8 in parallel), then it stays cached.
     desc_scan_max: int = 100
+    # How many tags of one data request are read from IP21 at the same time.
+    # tagreader would otherwise read them one after another; 1 restores that.
+    read_workers: int = 4
     # Where favourites are written back to; set by cli() to the file in use.
     config_file: Path = field(default_factory=lambda: Path("ip21.env"))
 
@@ -39,6 +42,7 @@ class Settings:
             plots_dir=Path(os.environ.get("IP21_PLOTS_DIR", "plots")),
             favorite_maps=parse_list(os.environ.get("IP21_FAVORITE_MAPS", "")),
             desc_scan_max=int(os.environ.get("IP21_DESC_SCAN_MAX", "100")),
+            read_workers=int(os.environ.get("IP21_READ_WORKERS", "4")),
         )
 
 

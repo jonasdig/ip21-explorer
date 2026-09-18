@@ -382,6 +382,49 @@ def test_read_passes_through_tag_map_and_reader_type(source):
     assert np.allclose(v, [1.0, 2.0, 3.0])
 
 
+def test_tags_of_one_request_are_read_side_by_side(make_source, monkeypatch):
+    """tagreader reads the tags of one call one after another; five of them
+    must not cost five round trips in a row."""
+    import time
+
+    original = FakeClient.read
+
+    def slow_read(self, tags, **kwargs):
+        time.sleep(0.2 * len(tags))       # like tagreader: one trip per tag
+        return original(self, tags, **kwargs)
+
+    monkeypatch.setattr(FakeClient, "read", slow_read)
+    tags = ["TI-101", "TI-201", "PI-103", "FI-104;CA_I OUTPUT", "LI-106"]
+    start = 1_787_000_000.0
+
+    serial = make_source(read_workers=1)
+    began = time.monotonic()
+    one_call = serial.read(tags, start, start + 600, SampleType.INT, 60)
+    serial_s = time.monotonic() - began
+    assert [c["tags"] for c in FakeClient.instances[-1].read_calls] == [tags]
+
+    parallel = make_source(read_workers=5)
+    began = time.monotonic()
+    side_by_side = parallel.read(tags, start, start + 600, SampleType.INT, 60)
+    parallel_s = time.monotonic() - began
+    calls = FakeClient.instances[-1].read_calls
+    assert sorted(c["tags"][0] for c in calls) == sorted(tags)
+    assert all(len(c["tags"]) == 1 for c in calls)
+
+    assert serial_s >= 0.9 and parallel_s < 0.5
+    # Same answer, same order, whichever way it was fetched.
+    assert list(side_by_side) == list(one_call) == tags
+    for tag in tags:
+        assert np.array_equal(side_by_side[tag][0], one_call[tag][0])
+        assert np.array_equal(side_by_side[tag][1], one_call[tag][1])
+
+
+def test_read_workers_default(source):
+    from ip21_explorer.sources.aspen import READ_WORKERS
+
+    assert source._read_workers == READ_WORKERS == 4
+
+
 @pytest.mark.parametrize(
     "sample,expected",
     [("INT", "INT"), ("AVG", "AVG"), ("MIN", "MIN"), ("MAX", "MAX")],

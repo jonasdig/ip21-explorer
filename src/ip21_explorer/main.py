@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import os
 import json
 import math
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -19,6 +21,8 @@ from .sources.base import DataSource, SampleType
 from .sources.simulator import SimulatorSource
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+logger = logging.getLogger("ip21_explorer")
 
 
 class RevalidatingStaticFiles(StaticFiles):
@@ -182,6 +186,7 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
             if interval_s <= 0:
                 raise HTTPException(422, "interval must be positive")
 
+        began = time.monotonic()
         try:
             series = await asyncio.to_thread(
                 source.read, tag_list, start_s, end_s, sample_type, interval_s
@@ -192,6 +197,13 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
             raise HTTPException(404, exc.args[0] if exc.args else "unknown tag")
         except ValueError as exc:
             raise HTTPException(422, str(exc))
+        # One line per trend request, so a slow plot can be traced to the
+        # historian (or ruled out) from the server window rather than guessed.
+        logger.info(
+            "read %d tag%s %s/%gs in %.1f s", len(tag_list),
+            "" if len(tag_list) == 1 else "s", sample_type.value, interval_s,
+            time.monotonic() - began,
+        )
 
         return {
             "sample": sample_type.value,
@@ -297,6 +309,7 @@ def make_source(settings: Settings) -> DataSource:
             verify_ssl=settings.verify_ssl,
             timezone_name=settings.timezone,
             desc_scan_max=settings.desc_scan_max,
+            read_workers=settings.read_workers,
         )
     raise ValueError(f"unknown source: {settings.source}")
 
@@ -346,6 +359,11 @@ def cli() -> None:
         raise SystemExit(f"Could not start the {settings.source} source: {exc}\n{SETUP_HINT}")
 
     import uvicorn
+
+    # uvicorn configures only its own loggers; this lets ours through at INFO,
+    # in the same shape as uvicorn's lines.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
+    logging.getLogger("tagreader").setLevel(logging.WARNING)
 
     uvicorn.run(
         create_app(source=source, settings=settings), host=host, port=port

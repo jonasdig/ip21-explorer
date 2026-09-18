@@ -97,3 +97,10 @@ def test_desc_scan_max_defaults_and_overrides(monkeypatch):
     assert Settings.from_env().desc_scan_max == 100
     monkeypatch.setenv("IP21_DESC_SCAN_MAX", "1200")
     assert Settings.from_env().desc_scan_max == 1200
+
+
+def test_read_workers_defaults_and_overrides(monkeypatch):
+    monkeypatch.delenv("IP21_READ_WORKERS", raising=False)
+    assert Settings.from_env().read_workers == 4
+    monkeypatch.setenv("IP21_READ_WORKERS", "1")
+    assert Settings.from_env().read_workers == 1
