@@ -156,6 +156,12 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
         tag_list = list(dict.fromkeys(t for t in tags.split(",") if t))
         if not tag_list:
             raise HTTPException(422, "no tags given")
+        # Formula rows are computed in the browser from tags that were fetched
+        # normally; one arriving here means the frontend leaked an expression,
+        # and failing plainly beats an opaque complaint from the historian.
+        formulas = [t for t in tag_list if t.lstrip().startswith("=")]
+        if formulas:
+            raise HTTPException(422, f"not a tag name: {formulas[0]}")
         start_s = parse_time(start, "start")
         end_s = parse_time(end, "end")
         if end_s <= start_s:

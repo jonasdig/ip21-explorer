@@ -1,6 +1,7 @@
 /* The tag settings table docked under the chart. */
 
 import { favoriteMaps, orderedMaps, saveFavorites } from "./api.js";
+import { isComputed } from "./computed.js";
 import { INTERVALS, SAMPLES } from "./constants.js";
 import { openSwatchMenu, showTagMenu } from "./menu.js";
 import { activeTab, byUid, makeTag, normalizeTagName, saveState, state } from "./state.js";
@@ -165,7 +166,7 @@ function buildTagRow(uid) {
   cellOf(row, "name").appendChild(mark(name, "name"));
 
   const sample = el("select");
-  sample.title = "Sampling type";
+  sample.title = "Sampling type (on a formula row: for the tags it fetches itself)";
   for (const s of SAMPLES) {
     const opt = el("option", null, s.label);
     opt.value = s.value;
@@ -176,7 +177,7 @@ function buildTagRow(uid) {
   cellOf(row, "sample").appendChild(mark(sample, "sample"));
 
   const interval = el("select");
-  interval.title = "Aggregate interval";
+  interval.title = "Aggregate interval (on a formula row: for the tags it fetches itself)";
   for (const item of INTERVALS) {
     const opt = el("option", null, item.label);
     opt.value = item.value;
@@ -258,18 +259,56 @@ function updateTagRow(tab, tag, row) {
     c.title = error ? error.text
       : tag.description ? `${tag.name} - ${tag.description}` : tag.name;
   });
-  cellOf(row, "unit").textContent = tag.unit || "";
+  // A tag's unit and description come from the historian and are read-only; a
+  // formula has neither until the user writes them, so there they are fields.
+  // An error takes the description cell either way - it is the widest column,
+  // and next to the expression that caused it.
+  const computed = isComputed(tag);
+  ownCell(cellOf(row, "unit"), row.dataset.uid, "unit", tag.unit || "",
+    computed && !error, "unit");
   const desc = cellOf(row, "desc");
   desc.classList.toggle("problem", !!error);
-  desc.textContent = error ? error.text : (tag.description || "");
-  desc.title = desc.textContent;
+  ownCell(desc, row.dataset.uid, "description",
+    error ? error.text : (tag.description || ""),
+    computed && !error, "name this formula");
+  desc.title = error ? error.text : (tag.description || "");
 
   updateMapCell(tab, tag, cellOf(row, "map"), row.dataset.uid);
+}
+
+// A cell that is plain text for most rows and a field for the rows that own
+// their value. The control is built once and then left alone, like every other
+// editable cell here, so an edit in progress keeps its caret.
+function ownCell(cell, uid, col, value, editable, placeholder) {
+  if (!editable) {
+    if (cell.firstElementChild) cell.innerHTML = "";
+    cell.textContent = value;
+    return;
+  }
+  let input = cell.querySelector("input");
+  if (!input) {
+    cell.textContent = "";
+    input = el("input");
+    input.type = "text";
+    input.placeholder = placeholder;
+    input.spellcheck = false;
+    input.dataset.uid = uid;
+    input.dataset.col = col;
+    input.addEventListener("change", () =>
+      setTagField(activeTab(), byUid(activeTab(), uid), col, input.value));
+    cell.appendChild(input);
+  }
+  if (input !== document.activeElement) input.value = value;
 }
 
 // The map list arrives late (one request per tag) and the favourite order can
 // change under it, so the options are rebuilt only when they would differ.
 function updateMapCell(tab, tag, cell, uid) {
+  // A formula asks the historian for nothing of its own, so it has no map.
+  if (isComputed(tag)) {
+    if (cell.textContent !== "\u2013") { cell.innerHTML = ""; cell.textContent = "\u2013"; }
+    return;
+  }
   ensureMaps(tab, tag);
 
   if (!tag.maps.length) {
@@ -362,7 +401,8 @@ function buildNewRow() {
   input.placeholder = "+ tag";
   input.spellcheck = false;
   input.autocomplete = "off";
-  input.title = "Type a tag name and press Enter; several at once, separated by spaces or commas";
+  input.title = "Type a tag name and press Enter; several at once, separated by spaces or commas. " +
+    "A name starting with = is a formula: =[TI-101] - [TI-201]";
   input.dataset.col = "new";
   input.addEventListener("keydown", async (e) => {
     // The table's Enter and arrow navigation is for rows that exist.
@@ -377,8 +417,12 @@ function buildNewRow() {
     }
     if (e.key !== "Enter") return;
     e.preventDefault();
-    // ";" separates a tag from its map and has to survive.
-    const names = input.value.split(/[,\s]+/).map((n) => n.trim()).filter(Boolean);
+    // ";" separates a tag from its map and has to survive, and a formula is
+    // one row however many spaces and commas it contains.
+    const text = input.value.trim();
+    const names = isComputed({ name: text })
+      ? [text]
+      : text.split(/[,\s]+/).map((n) => n.trim()).filter(Boolean);
     if (!names.length) return;
     input.value = "";
     const tags = names.map((n) => makeTag({ name: normalizeTagName(n) }));

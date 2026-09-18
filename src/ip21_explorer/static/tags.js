@@ -5,6 +5,7 @@ import {
   apiGetDescription, apiGetMaps, apiGetUnit, ensureFavorites, orderedMaps,
 } from "./api.js";
 import { renderChart } from "./chart.js";
+import { isComputed, recompute } from "./computed.js";
 import { PALETTE } from "./constants.js";
 import { loadData, rebuildJoined } from "./data.js";
 import { ensureNavData, renderNavigator } from "./navigator.js";
@@ -21,6 +22,10 @@ import { showError, showNotice } from "./util.js";
 // Display name. Several tags may share a reqName (same tag, same map, e.g.
 // straight after a duplicate), so those get an ordinal to tell them apart.
 export function tagLabel(tab, tag) {
+  // A formula is named by the short description when it has one - the
+  // expression is the definition, not a label - and never gets an ordinal:
+  // two identical formulas are two deliberate rows, not twins on one tag.
+  if (isComputed(tag)) return (tag.description || "").trim() || tag.name.replace(/^=\s*/, "");
   const name = reqName(tag);
   const twins = tab.tags.filter((t) => reqName(t) === name);
   if (twins.length < 2) return name;
@@ -33,6 +38,9 @@ export function tagLabel(tab, tag) {
 // tagLabel() stays the machine-facing name, for CSV headers and exports.
 export function tagDisplay(tab, tag) {
   const name = tagLabel(tab, tag);
+  // The label modes are about a tag's description from the historian; a
+  // formula's description is its name, so showing both would say it twice.
+  if (isComputed(tag)) return name;
   const desc = (tag.description || "").trim();
   if (!desc || state.labelMode === "tag") return name;
   return state.labelMode === "desc" ? desc : `${name} \u00b7 ${desc}`;
@@ -50,7 +58,7 @@ export function nextColor(tab) {
 // _unitChecked stops a tag the historian has no unit for from asking again on
 // every live tick; applyMapUnit() re-arms it when the map changes.
 async function ensureUnit(tab, tag) {
-  if (tag.unit || tag._unitChecked) return;
+  if (tag.unit || tag._unitChecked || isComputed(tag)) return;
   tag._unitChecked = true; // set before awaiting: loadData may call again
   const unit = await apiGetUnit(reqName(tag)).catch(() => "");
   if (!unit || tag.unit) return;
@@ -90,7 +98,7 @@ export function ensureDescriptions(tab) {
   if (state.labelMode === "tag") return;
   const wanted = new Set();
   for (const tag of tab.tags) {
-    if (!tag.description && !tag._descChecked) wanted.add(tag.name);
+    if (!tag.description && !tag._descChecked && !isComputed(tag)) wanted.add(tag.name);
   }
   for (const name of wanted) fetchDescription(tab, name);
 }
@@ -156,7 +164,7 @@ export async function insertTags(tab, tags, at) {
   for (const tag of tags) {
     // nextColor() and assignFreeMap() both read the current tab.tags, so each
     // tag has to be in place before the next one picks a colour and a map.
-    const duplicate = tab.tags.some((t) => reqName(t) === reqName(tag));
+    const duplicate = !isComputed(tag) && tab.tags.some((t) => reqName(t) === reqName(tag));
     tag.color = nextColor(tab);
     tab.tags.splice(index++, 0, tag);
     if (!tab.axisUid) tab.axisUid = tag.uid;
@@ -216,7 +224,11 @@ export function removeTags(tab, uids) {
   const r = rt(tab);
   if (r.raw) { // drop locally, no refetch needed
     for (const tag of gone) delete r.raw[tag.uid];
+    // A formula that used one of them now refers to a tag with no row: it is
+    // fetched on its own from here on, which does need a request.
+    const local = recompute(tab, r);
     rebuildJoined(tab, r);
+    if (!local) loadData(tab);
   }
   renderChart();
   renderNavigator();
@@ -236,7 +248,7 @@ export function renderTags() {
 // Maps cost a request per tag, so they are fetched the first time a row that
 // can show them is drawn.
 export function ensureMaps(tab, tag) {
-  if (tag.maps.length || tag._mapsChecked) return;
+  if (tag.maps.length || tag._mapsChecked || isComputed(tag)) return;
   tag._mapsChecked = true;
   apiGetMaps(tag.name).then((maps) => {
     if (!maps.length) return;
@@ -261,6 +273,9 @@ export function moveTag(tab, from, to) {
   // r.tagOrder and the joined data columns are derived from tab.tags, so
   // without this the chart would keep drawing each series against its old
   // column - every trace showing the wrong tag's data.
+  // Row order decides which row a bare reference in a formula resolves to,
+  // so the values can change even though nothing was fetched.
+  recompute(tab, rt(tab));
   rebuildJoined(tab, rt(tab));
   renderTags();
   renderChart();
@@ -290,9 +305,23 @@ export function setTagFields(tab, tag, patch) {
       redraw = nav = true;
     } else if (key === "step") {
       tag.step = !!value;
+      // Stepped means "hold the last value", which is also how a formula must
+      // read this tag between its samples.
+      if (recompute(tab, rt(tab))) rebuildJoined(tab, rt(tab));
       redraw = true;
     } else if (key === "min" || key === "max") {
       tag[key] = Number.isFinite(value) ? value : null;
+      redraw = true;
+    } else if (key === "unit") {
+      // Only a formula row can get here: a real tag's unit comes from the
+      // historian, and its cell is not editable.
+      tag.unit = String(value).trim();
+      redraw = true;
+    } else if (key === "description") {
+      tag.description = String(value).trim();
+      // The description is a formula's name, and another formula may refer to
+      // it, so renaming one can make or break the other.
+      if (recompute(tab, rt(tab))) rebuildJoined(tab, rt(tab));
       redraw = true;
     } else if (key === "sample") {
       tag.sample = value;
@@ -303,19 +332,30 @@ export function setTagFields(tab, tag, patch) {
     } else if (key === "name") {
       const next = normalizeTagName(String(value).trim());
       if (!next || next === tag.name) continue;
+      const wasComputed = isComputed(tag);
       tag.name = next;
-      // Everything else on the tag described the old name.
-      tag.description = "";
-      tag.unit = "";
-      tag.maps = [];
-      tag.map = null;
-      tag._mapsChecked = tag._unitChecked = tag._descChecked = false;
+      if (!isComputed(tag)) {
+        // A plain tag's unit, description and maps all described the old name.
+        // A formula's are the user's own words and survive an edit.
+        tag.description = wasComputed ? tag.description : "";
+        tag.unit = wasComputed ? tag.unit : "";
+        tag.maps = [];
+        tag.map = null;
+        tag._mapsChecked = tag._unitChecked = tag._descChecked = false;
+      }
       tag._error = null;
       // Drop the old trace now rather than at the next answer: leaving it up
       // would read as if the new name had worked.
       const r = rt(tab);
       if (r.raw) {
         delete r.raw[tag.uid];
+        // An edited formula over tags already in hand is arithmetic, not a
+        // reason to make the historian repeat itself.
+        if (isComputed(tag) && recompute(tab, r)) {
+          rebuildJoined(tab, r);
+          redraw = true;
+          continue;
+        }
         rebuildJoined(tab, r);
         redraw = true;
       }

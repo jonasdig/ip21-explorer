@@ -153,7 +153,11 @@ export function renderChart() {
   }
   $("empty-hint").classList.add("hidden");
 
-  if (!r.data) { loadData(tab); return; }
+  // Gate on raw rather than on the joined table: a window where every tag
+  // came back empty leaves r.data null, and asking again on every render was
+  // a fetch loop with no way out. The error box already says what happened.
+  if (!r.raw) { loadData(tab); return; }
+  if (!r.data) return;
   chart = new uPlot(makeOpts(tab, r), r.data, target);
   mountScooters();
 }

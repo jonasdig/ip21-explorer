@@ -1,6 +1,7 @@
 /* The persisted app state: tabs and tags, their migration, and localStorage. */
 
 import { INTERVALS, LABEL_MODES, STORAGE_KEY } from "./constants.js";
+import { isFormula } from "./formula.js";
 import { TAG_TABLE_DEFAULT_H, clampTableHeight } from "./tag-table.js";
 
 export let state = null;      // { tabs: [...], activeTabId }
@@ -55,6 +56,9 @@ export function makeTag(info) {
 
 // Old catalog names carried role suffixes (TI-101.PV); maps replace them now.
 export function normalizeTagName(name) {
+  // Guarded here rather than at the six call sites: an expression ending in
+  // .PV would otherwise come back one character short of working.
+  if (isFormula(name)) return name.trim();
   return name.replace(/\.(PV|SP|OUT)$/, "");
 }
 

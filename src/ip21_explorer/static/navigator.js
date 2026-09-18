@@ -1,6 +1,7 @@
 /* The navigator band under the chart. */
 
 import { chart } from "./chart.js";
+import { isComputed } from "./computed.js";
 import { MIN_SPAN_S } from "./constants.js";
 import { activeTab, byUid, reqName, rt, saveState, state } from "./state.js";
 import { tagLabel } from "./tags.js";
@@ -26,7 +27,12 @@ let navDrag = null;             // {mode, startX, start, end} while dragging
 // tag - the one whose axis is shown, picked in the table's Grid column - so the
 // choice is already visible in the table, and the band names it too.
 function navTag(tab) {
-  return byUid(tab, tab.axisUid) || tab.tags.find((t) => t.visible !== false);
+  // A formula has no name to ask the historian for, so the band falls through
+  // to a real tag: its job is "where in the day am I", which any of them does.
+  const owner = byUid(tab, tab.axisUid);
+  if (owner && !isComputed(owner)) return owner;
+  return tab.tags.find((t) => !isComputed(t) && t.visible !== false)
+    || tab.tags.find((t) => !isComputed(t));
 }
 
 // Context for a window, centred on it. Clamped so it never reaches into the
