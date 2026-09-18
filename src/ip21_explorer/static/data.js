@@ -19,6 +19,9 @@ export async function loadData(tab) {
   if (r.abort) r.abort.abort();
   r.abort = new AbortController();
   const seq = ++r.seq;
+  // Read by the live tick, which must wait for an answer rather than replace
+  // it: see liveTick() in timerange.js.
+  r.inFlight = true;
 
   const width = $("chart-wrap").clientWidth || 1200;
   const points = Math.max(300, Math.min(4000, Math.round(width * 1.2)));
@@ -98,7 +101,10 @@ export async function loadData(tab) {
     if (tab.id === state.activeTabId) showError(err.message);
   } finally {
     // Hide even if the active tab changed mid-fetch, so it can't get stuck.
-    if (seq === r.seq) $("loading").classList.add("hidden");
+    if (seq === r.seq) {
+      $("loading").classList.add("hidden");
+      r.inFlight = false;
+    }
   }
 }
 

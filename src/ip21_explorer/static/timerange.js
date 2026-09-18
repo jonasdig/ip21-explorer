@@ -185,6 +185,11 @@ export function liveTick() {
   // Skip ticks that cannot contain a new plot bucket yet: with a 60 s
   // aggregate interval only every sixth 10 s tick can show a new point.
   const r = rt(tab);
+  // A tick that fires while the last one is still being answered would abort
+  // it and ask again. Against a historian slower than the tick that is a loop
+  // that never lands - every request thrown away just before its answer, while
+  // the server goes on working through each one anyway. Wait instead.
+  if (r.inFlight) return;
   if (r.end && r.intervalS && Date.now() / 1000 - r.end < r.intervalS) return;
   if (tab.range.preset) { // presets are relative: just re-resolve
     loadData(tab);
