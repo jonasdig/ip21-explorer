@@ -15,13 +15,19 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
 - **Full-screen plot per tab** — multiple tabs, each with its own tag set;
   per-tab *Link time* membership shares a common time range between the tabs
   that opt in
-- **Tag settings table** under the plot, toggled with the **Table** button: one
-  row per tag with colour, record map, sampling type, interval, stepped, and
-  min/max, all editable in place while the trends stay visible above. `Tab`
-  moves to the next setting, `Enter` to the same setting on the next tag, so a
-  whole plot can be set up without leaving the keyboard. Rows drag to reorder
-  (or `Alt`+`↑`/`↓`), which is also the order the stacked axis gutter and the
-  scooter readouts use, so related tags can be grouped
+- **Tag settings table** under the plot — the one place tags live: one row per
+  tag with the tag name itself, colour, record map, sampling type, interval,
+  stepped, and min/max, all editable in place while the trends stay visible
+  above. The tag name is a field like any other, so a mistyped or neighbouring
+  tag (`LIC-2010A` → `LIC-2010B`) is fixed by typing over it, and the blank row
+  at the bottom adds a tag by name without going through search. A row the
+  historian had nothing for says so in red, in its own row. `Tab` moves to the
+  next setting, `Enter` to the same setting on the next tag, so a whole plot
+  can be set up without leaving the keyboard. Rows drag to reorder (or
+  `Alt`+`↑`/`↓`), which is also the order the stacked axis gutter and the
+  scooter readouts use, so related tags can be grouped. Drag its top edge to
+  trade height with the plot — all the way down leaves just the column
+  headings
 - **Per-tag colour**: tags get distinct colorblind-friendly colors
   automatically; pick another from the palette — or any colour at all — in the
   table's colour cell
@@ -41,7 +47,9 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   single-axis and side-by-side axes modes
 - **Time presets** (1h–30d), custom ranges, drag-select and mouse-wheel zoom
   with automatic re-fetch, zoom-back history (Esc), a red **Now** button, and
-  a right-click menu (add scooter, delete scooters, zoom back, reset zoom)
+  a right-click menu (add scooter, delete scooters, zoom back, reset zoom).
+  Reset zoom returns to the window you asked for — the preset you pressed or
+  the dates you typed. Axis labels carry the year once a window spans one
 - **24-hour time fields** in `dd.mm.yyyy hh:mm:ss`, never AM/PM whatever the
   browser's locale, with a calendar popover (Monday first) and arrow keys that
   step whichever part the cursor sits in
@@ -63,7 +71,7 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   decide which map a duplicated tag takes next. Stored server-side in
   `ip21.env` (`IP21_FAVORITE_MAPS`). Map units are looked up only for the map
   actually in use, so opening the dropdown costs one request, not one per map
-- **Copy/paste tags**: right-click a tag for copy, duplicate, paste and remove,
+- **Copy/paste tags**: right-click a tag's row for copy, duplicate, paste and remove,
   or use Ctrl+C / Ctrl+V — tags travel as JSON on the system clipboard, so they
   can be pasted between tabs, windows and machines
 - **Scooters**: any number of draggable value cursors with per-tag readouts;
@@ -189,7 +197,7 @@ src/ip21_explorer/
     state.js           Tabs and tags, their migration, localStorage
     api.js, data.js    Server API wrappers; fetching and joining trend data
     chart.js           uPlot chart; axis-gutter.js draws the stacked axis
-    tags.js            Adding/removing tags, the pill strip, the tag setter
+    tags.js            Adding/removing tags, units, the tag setter
     tag-table.js       Settings table (tag-table-keys.js: its keyboard handling)
     search.js          Tag search         timerange.js   Presets, zoom, live
     scooters.js        Value cursors      navigator.js   Navigator band

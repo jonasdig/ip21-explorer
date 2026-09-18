@@ -181,7 +181,9 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
                 source.read, tag_list, start_s, end_s, sample_type, interval_s
             )
         except KeyError as exc:
-            raise HTTPException(404, str(exc))
+            # KeyError's str() is the repr of its argument, quotes and all, and
+            # this message is shown to the user as it stands.
+            raise HTTPException(404, exc.args[0] if exc.args else "unknown tag")
         except ValueError as exc:
             raise HTTPException(422, str(exc))
 

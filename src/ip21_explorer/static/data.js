@@ -3,7 +3,7 @@
 import { renderChart } from "./chart.js";
 import { ensureNavData } from "./navigator.js";
 import { reqName, rt, state } from "./state.js";
-import { ensureDescriptions, ensureUnits } from "./tags.js";
+import { ensureDescriptions, ensureUnits, renderTags } from "./tags.js";
 import { resolveRange } from "./timerange.js";
 import { $, showError } from "./util.js";
 
@@ -43,23 +43,31 @@ export async function loadData(tab) {
           interval: groupTags[0].interval,
           points: String(points),
         });
-        const resp = await fetch(`/api/data?${params}`, { signal: r.abort.signal });
-        if (!resp.ok) {
-          const detail = (await resp.json().catch(() => ({}))).detail;
-          throw new Error(detail || `data request failed (${resp.status})`);
+        try {
+          const resp = await fetch(`/api/data?${params}`, { signal: r.abort.signal });
+          if (!resp.ok) {
+            const detail = (await resp.json().catch(() => ({}))).detail;
+            throw new Error(detail || `data request failed (${resp.status})`);
+          }
+          // Map the response back per tag: several tags can share one reqName
+          // (same tag, same map), and each needs its own runtime slot.
+          const body = await resp.json();
+          const out = {};
+          for (const tag of groupTags) {
+            const s = body.series[reqName(tag)];
+            if (s) out[tag.uid] = s; // read-only, so twins may share one object
+          }
+          return { series: out, intervalS: body.interval_s, tags: groupTags };
+        } catch (err) {
+          if (err.name === "AbortError") throw err;
+          // One misspelled tag fails its whole request, but only that one:
+          // the other sample/interval groups keep their data and their traces.
+          return { series: {}, error: err.message, tags: groupTags };
         }
-        // Map the response back per tag: several tags can share one reqName
-        // (same tag, same map), and each needs its own runtime slot.
-        const body = await resp.json();
-        const out = {};
-        for (const tag of groupTags) {
-          const s = body.series[reqName(tag)];
-          if (s) out[tag.uid] = s; // read-only, so twins may share one object
-        }
-        return { series: out, intervalS: body.interval_s };
       })
     );
     if (seq !== r.seq) return; // superseded by a newer request
+    const failed = markTagErrors(results);
 
     // Keyed by tag.uid, so groups can never overwrite each other's entries.
     r.raw = Object.assign({}, ...results.map((g) => g.series));
@@ -70,8 +78,8 @@ export async function loadData(tab) {
     const intervals = results.map((g) => g.intervalS).filter((i) => i > 0);
     r.intervalS = intervals.length ? Math.min(...intervals) : null;
     rebuildJoined(tab, r);
-    showError(null);
-    if (tab.id === state.activeTabId) renderChart();
+    showError(failed);
+    if (tab.id === state.activeTabId) { renderTags(); renderChart(); }
   } catch (err) {
     if (err.name === "AbortError") return;
     if (tab.id === state.activeTabId) showError(err.message);
@@ -79,6 +87,40 @@ export async function loadData(tab) {
     // Hide even if the active tab changed mid-fetch, so it can't get stuck.
     if (seq === r.seq) $("loading").classList.add("hidden");
   }
+}
+
+// Why a row has no trace, written onto the tag itself: a request that failed
+// (a name the historian does not know, typically) is a hard error and the row
+// says so in red; a tag simply absent from an otherwise good answer has no
+// data in this window, which is worth saying but is not a mistake.
+// Returns the first hard message, for the error box above the chart.
+//
+// A failed request takes its whole group down, so the red is aimed at the tag
+// the historian named in its complaint, if any: the rest of the group lost
+// their data for this round without having done anything wrong.
+function markTagErrors(results) {
+  let first = null;
+  for (const group of results) {
+    const blamed = group.error
+      ? group.tags.filter((t) => group.error.includes(t.name))
+      : [];
+    for (const tag of group.tags) {
+      if (group.error) {
+        const hard = !blamed.length || blamed.includes(tag);
+        tag._error = {
+          text: hard ? group.error
+            : `not fetched: ${blamed.map((t) => t.name).join(", ")} failed in the same request`,
+          hard,
+        };
+        first = first || group.error;
+      } else if (!group.series[tag.uid]) {
+        tag._error = { text: "no data in this window", hard: false };
+      } else {
+        tag._error = null;
+      }
+    }
+  }
+  return first;
 }
 
 export function rebuildJoined(tab, r) {

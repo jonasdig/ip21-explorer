@@ -1,4 +1,4 @@
-/* The context menu, the pill menu and the colour menu. */
+/* The context menu, the tag menu and the colour menu. */
 
 import {
   exportCsvRange, exportTags, outermostScooters, showAverageDialog,
@@ -115,7 +115,7 @@ export function showContextMenu(e, tAtCursor) {
   openMenu(e, items);
 }
 
-export function showPillMenu(e, tag) {
+export function showTagMenu(e, tag) {
   const tab = activeTab();
   openMenu(e, [
     ["Copy tag", "Ctrl+C", () => copyTags([tag])],

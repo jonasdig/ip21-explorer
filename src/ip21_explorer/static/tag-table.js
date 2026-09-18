@@ -2,13 +2,12 @@
 
 import { favoriteMaps, orderedMaps, saveFavorites } from "./api.js";
 import { INTERVALS, SAMPLES } from "./constants.js";
-import { openSwatchMenu } from "./menu.js";
-import { activeTab, byUid, saveState, state } from "./state.js";
+import { openSwatchMenu, showTagMenu } from "./menu.js";
+import { activeTab, byUid, makeTag, normalizeTagName, saveState, state } from "./state.js";
 import {
-  autoScale, ensureMaps, moveTag, removeTag, renderTags, setAxisOwner,
-  setTagField, tagDisplay,
+  autoScale, ensureMaps, insertTags, moveTag, removeTag, renderTags,
+  setAxisOwner, setTagField,
 } from "./tags.js";
-import { renderToolbar } from "./toolbar.js";
 import { $, el } from "./util.js";
 
 // A row is a grid of its own rather than one grid for the whole table, so a
@@ -33,7 +32,10 @@ const TAG_COLUMNS = [
 ];
 
 export const TAG_TABLE_DEFAULT_H = 200;
-const TAG_TABLE_MIN_H = 96;
+// The resize strip plus the header row: dragged all the way down, the table
+// keeps only its column headings - enough to say it is there, and to drag it
+// back up - while the chart gets everything else.
+const TAG_TABLE_MIN_H = 28;
 
 // Never so tall that the chart it is docked under has nothing left.
 export function clampTableHeight(h) {
@@ -45,18 +47,11 @@ export function clampTableHeight(h) {
 // its caret, its selection and its undo history. tagRowEls maps uid -> row.
 let tagRowEls = new Map();
 let tagRowsTabId = null;
+let newRowEl = null;
 
 export function renderTagTable() {
   const panel = $("tag-table");
   const tab = activeTab();
-  panel.classList.toggle("hidden", !tab.tagTable);
-  // Closed is the common case and every setting change renders, so cost
-  // nothing while it is shut.
-  if (!tab.tagTable) {
-    tagRowEls.clear();
-    tagRowsTabId = null;
-    return;
-  }
   panel.style.height = `${clampTableHeight(state.tagTableHeight)}px`;
 
   const head = panel.querySelector(".head");
@@ -94,7 +89,9 @@ export function renderTagTable() {
     updateTagRow(tab, tag, row);
   }
 
-  body.classList.toggle("empty", !tab.tags.length);
+  // Always last, and re-appended after a tab switch empties the body.
+  if (!newRowEl) newRowEl = buildNewRow();
+  if (newRowEl.parentNode !== body) body.appendChild(newRowEl);
 }
 
 function cellOf(row, key) {
@@ -121,6 +118,14 @@ function buildTagRow(uid) {
     return control;
   };
 
+  row.addEventListener("contextmenu", (e) => {
+    // A text field keeps the browser's own menu: that is where pasting a tag
+    // name belongs, and our menu pastes whole tags instead.
+    if (e.target.matches('input[type="text"]')) return;
+    e.preventDefault();
+    showTagMenu(e, tagOf());
+  });
+
   const grip = el("span", "handle", "⠿");
   grip.title = "Drag to reorder (or Alt+Up / Alt+Down from any cell)";
   grip.addEventListener("pointerdown", (ev) => beginRowDrag(ev, uid));
@@ -146,6 +151,18 @@ function buildTagRow(uid) {
   color.addEventListener("click", () =>
     openSwatchMenu(color, activeTab(), tagOf()));
   cellOf(row, "color").appendChild(mark(color, "color"));
+
+  // Editable, because correcting a mistyped tag is the common case: LIC-2010A
+  // should become LIC-2010B by typing over it, not by removing and searching
+  // again. The field holds the bare name - the map has its own column, and the
+  // label mode is a display setting for the plot.
+  const name = el("input");
+  name.type = "text";
+  name.spellcheck = false;
+  name.autocomplete = "off";
+  name.addEventListener("change", () =>
+    setTagField(activeTab(), tagOf(), "name", name.value));
+  cellOf(row, "name").appendChild(mark(name, "name"));
 
   const sample = el("select");
   sample.title = "Sampling type";
@@ -232,13 +249,20 @@ function updateTagRow(tab, tag, row) {
   set("min", (c) => { c.value = tag.min == null ? "" : tag.min; });
   set("max", (c) => { c.value = tag.max == null ? "" : tag.max; });
 
-  const name = cellOf(row, "name");
-  name.textContent = tagDisplay(tab, tag);
-  name.title = tag.description ? `${tag.name} - ${tag.description}` : tag.name;
+  // A tag the last fetch had nothing for says so in its own row: the plot can
+  // only show a missing trace as absence, which reads as "no data yet".
+  const error = tag._error;
+  row.classList.toggle("error", !!(error && error.hard));
+  set("name", (c) => {
+    c.value = tag.name;
+    c.title = error ? error.text
+      : tag.description ? `${tag.name} - ${tag.description}` : tag.name;
+  });
   cellOf(row, "unit").textContent = tag.unit || "";
   const desc = cellOf(row, "desc");
-  desc.textContent = tag.description || "";
-  desc.title = tag.description || "";
+  desc.classList.toggle("problem", !!error);
+  desc.textContent = error ? error.text : (tag.description || "");
+  desc.title = desc.textContent;
 
   updateMapCell(tab, tag, cellOf(row, "map"), row.dataset.uid);
 }
@@ -325,6 +349,47 @@ function updateMapCell(tab, tag, cell, uid) {
   }
 }
 
+// The blank row at the bottom of the table. There is no search behind it, so
+// the name has to be spelled right - one that is not comes back marked as a
+// row the historian had nothing for.
+function buildNewRow() {
+  const row = el("div", "row newrow");
+  row.style.gridTemplateColumns = TAG_COLUMNS.map((c) => c.width).join(" ");
+  for (const col of TAG_COLUMNS) row.appendChild(el("span", `cell ${col.key}`));
+
+  const input = el("input");
+  input.type = "text";
+  input.placeholder = "+ tag";
+  input.spellcheck = false;
+  input.autocomplete = "off";
+  input.title = "Type a tag name and press Enter; several at once, separated by spaces or commas";
+  input.dataset.col = "new";
+  input.addEventListener("keydown", async (e) => {
+    // The table's Enter and arrow navigation is for rows that exist.
+    e.stopPropagation();
+    if (e.key === "ArrowUp") {
+      const rows = [...$("tag-table").querySelectorAll(".row:not(.newrow)")];
+      const last = rows[rows.length - 1];
+      if (!last) return;
+      e.preventDefault();
+      focusTagCell(last.dataset.uid, "name");
+      return;
+    }
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    // ";" separates a tag from its map and has to survive.
+    const names = input.value.split(/[,\s]+/).map((n) => n.trim()).filter(Boolean);
+    if (!names.length) return;
+    input.value = "";
+    const tags = names.map((n) => makeTag({ name: normalizeTagName(n) }));
+    await insertTags(activeTab(), tags);
+    input.focus(); // ready for the next one
+  });
+  cellOf(row, "name").appendChild(input);
+  cellOf(row, "desc").textContent = "type a tag name and press Enter";
+  return row;
+}
+
 // Puts the caret back where the user was, addressed by tag and column rather
 // than by any element that a re-render might have replaced.
 export function focusTagCell(uid, col) {
@@ -400,31 +465,13 @@ export function beginTableResize(e) {
   e.target.addEventListener("pointerup", onUp);
 }
 
-// The gear on a pill is now a way into the table rather than a popover of its
-// own: open it if it is shut, put the row in view, and start the caret on the
-// first setting that is actually worth changing.
-export function openTagTable(tag) {
-  const tab = activeTab();
-  if (!tab.tagTable) {
-    tab.tagTable = true;
-    renderToolbar();
-    renderTagTable();
-    saveState();
-  }
-  const row = tagRowEls.get(tag.uid);
-  if (row) {
-    row.scrollIntoView({ block: "nearest" });
-    row.classList.remove("flash");
-    void row.offsetWidth; // restart the animation on a repeat click
-    row.classList.add("flash");
-  }
-  focusTagCell(tag.uid, "color");
-}
-
-export function toggleTagTable() {
-  const tab = activeTab();
-  tab.tagTable = !tab.tagTable;
-  renderToolbar();
-  renderTagTable();
-  saveState();
+// A tag that was just added can be anywhere in a table of forty rows, so the
+// eye is led to it.
+export function revealTagRow(uid) {
+  const row = tagRowEls.get(uid);
+  if (!row) return;
+  row.scrollIntoView({ block: "nearest" });
+  row.classList.remove("flash");
+  void row.offsetWidth; // restart the animation on a repeat
+  row.classList.add("flash");
 }

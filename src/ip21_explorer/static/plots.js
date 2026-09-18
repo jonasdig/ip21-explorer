@@ -13,7 +13,7 @@ import { addTab, renderTabs } from "./tabs.js";
 import { nextColor } from "./tags.js";
 import { $, el, fmtTime, showError } from "./util.js";
 
-const CONFIG_VERSION = 4;
+const CONFIG_VERSION = 5;
 
 // A complete snapshot of a plot: everything needed to recreate it exactly,
 // minus runtime-only identity (uid) and caches (_mapsChecked).
@@ -30,11 +30,13 @@ export function tabToConfig(tab, name) {
     axisIndex: tab.tags.findIndex((t) => t.uid === tab.axisUid),
     linked: !!tab.linked,
     live: !!tab.live,
-    tagTable: !!tab.tagTable,
     scooters: (tab.scooters || []).map((sc) => ({ t: sc.t, dy: sc.dy || 0 })),
     range: tab.range.preset
       ? { preset: tab.range.preset }
-      : { start: tab.range.start, end: tab.range.end, fromPreset: tab.range.fromPreset || null },
+      : { start: tab.range.start, end: tab.range.end },
+    // What "Reset zoom" goes back to: the plot was saved zoomed in, but the
+    // window it was zoomed in from is part of how it was meant to be read.
+    baseRange: tab.baseRange || null,
   };
 }
 
@@ -70,10 +72,12 @@ function configToTab(name, config) {
   tab.axisUid = (axisTag || tab.tags[0] || {}).uid || null;
   tab.range = config.range && (config.range.preset || config.range.start != null)
     ? config.range : { preset: "24h" };
+  tab.baseRange = config.baseRange || (config.range && config.range.fromPreset
+    ? { preset: config.range.fromPreset } : { ...tab.range });
+  delete tab.range.fromPreset;
   tab.labels = Array.isArray(config.labels) ? config.labels.slice() : [];
   tab.linked = config.linked === true;
   tab.live = config.live === true;
-  tab.tagTable = config.tagTable === true;
   tab.scooters = Array.isArray(config.scooters)
     ? config.scooters.filter((sc) => sc && typeof sc.t === "number")
         .map((sc) => ({ t: sc.t, dy: sc.dy || 0 }))

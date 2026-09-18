@@ -132,7 +132,7 @@ function showCalendar(field) {
   });
   pop.appendChild(nowBtn);
 
-  // Anchored under the field, kept inside the window like the pill popover.
+  // Anchored under the field, kept inside the window like the context menu.
   const rect = field.getBoundingClientRect();
   pop.classList.remove("hidden");
   pop.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth - 250))}px`;

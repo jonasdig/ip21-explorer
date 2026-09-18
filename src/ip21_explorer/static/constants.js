@@ -51,7 +51,7 @@ export const LIVE_INTERVAL_MS = 10_000;
 // Above this, "Open all" asks first: each listed plot becomes its own tab.
 export const OPEN_ALL_CONFIRM = 8;
 
-// What the tag bar and the readout boxes name a tag by, and the cycle order.
+// What the readout boxes name a tag by, and the cycle order.
 export const LABEL_MODES = {
   tag: { label: "Labels: tag", next: "desc" },
   desc: { label: "Labels: description", next: "both" },

@@ -8,12 +8,12 @@ import { addScooterAt, positionScooters } from "./scooters.js";
 import { activeTab, saveState, state } from "./state.js";
 import { addTab, setLinked } from "./tabs.js";
 import { isEditingContext, onTagTableKey } from "./tag-table-keys.js";
-import { beginTableResize, toggleTagTable } from "./tag-table.js";
+import { beginTableResize } from "./tag-table.js";
 import { ensureDescriptions, renderTags } from "./tags.js";
 import { initTimeFields } from "./timefields.js";
 import {
   jumpToNow, liveDisabledReason, liveTick, popHistory, resolveRange,
-  setAbsoluteRange, setPreset, toggleLive,
+  setBaseRange, setPreset, toggleLive,
 } from "./timerange.js";
 import { $, el, fmtTime, parseTimeInput, showError } from "./util.js";
 
@@ -45,7 +45,6 @@ export function renderToolbar() {
   $("axis-mode").textContent = axisModeLabels[tab.axisMode] || axisModeLabels.stacked;
   $("label-mode").textContent = (LABEL_MODES[state.labelMode] || LABEL_MODES.tag).label;
   $("nav-toggle").classList.toggle("active", !!state.navigator);
-  $("table-toggle").classList.toggle("active", !!tab.tagTable);
   $("link-ranges-cb").checked = !!tab.linked;
 }
 
@@ -58,7 +57,7 @@ export function initToolbar() {
       showError("Invalid custom time range");
       return;
     }
-    setAbsoluteRange(activeTab(), start, end, false);
+    setBaseRange(activeTab(), start, end);
   });
 
   $("now-btn").addEventListener("click", jumpToNow);
@@ -89,7 +88,6 @@ export function initToolbar() {
     addScooterAt((cur.start + cur.end) / 2);
   });
 
-  $("table-toggle").addEventListener("click", toggleTagTable);
   $("tag-table").addEventListener("keydown", onTagTableKey);
   $("tag-table").querySelector(".resize")
     .addEventListener("pointerdown", beginTableResize);

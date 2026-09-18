@@ -1,5 +1,5 @@
-/* Tags on a tab: adding and removing, units and descriptions, the pill
-   strip, and the one setter every tag setting goes through. */
+/* Tags on a tab: adding and removing, units and descriptions, and the one
+   setter every tag setting goes through. */
 
 import {
   apiGetDescription, apiGetMaps, apiGetUnit, ensureFavorites, orderedMaps,
@@ -7,17 +7,16 @@ import {
 import { renderChart } from "./chart.js";
 import { PALETTE } from "./constants.js";
 import { loadData, rebuildJoined } from "./data.js";
-import { showPillMenu } from "./menu.js";
 import { ensureNavData, renderNavigator } from "./navigator.js";
 import { positionScooters } from "./scooters.js";
 import {
-  activeTab, byUid, makeTag, newUid, normalizeInterval, reqName, rt, saveState,
-  state,
+  activeTab, byUid, makeTag, newUid, normalizeInterval, normalizeTagName,
+  reqName, rt, saveState, state,
 } from "./state.js";
-import { openTagTable, renderTagTable } from "./tag-table.js";
+import { renderTagTable, revealTagRow } from "./tag-table.js";
 import { enforceLiveGuard } from "./timerange.js";
 import { renderToolbar } from "./toolbar.js";
-import { $, el, intervalLabel, showError, showNotice } from "./util.js";
+import { showError, showNotice } from "./util.js";
 
 // Display name. Several tags may share a reqName (same tag, same map, e.g.
 // straight after a duplicate), so those get an ordinal to tell them apart.
@@ -28,8 +27,9 @@ export function tagLabel(tab, tag) {
   return `${name} #${twins.indexOf(tag) + 1}`;
 }
 
-// What the tag bar and the readout boxes show, per the label mode. Falls back
-// to the name when a tag has no description, so a row is never blank.
+// What the readout boxes show, per the label mode. Falls back to the name
+// when a tag has no description, so a readout row is never blank. The table
+// shows the bare tag.name instead: that cell is editable.
 // tagLabel() stays the machine-facing name, for CSV headers and exports.
 export function tagDisplay(tab, tag) {
   const name = tagLabel(tab, tag);
@@ -173,6 +173,7 @@ export async function insertTags(tab, tags, at) {
   }
   renderTags();
   if (added.length) {
+    revealTagRow(added[0].uid); // a long table hides where they landed
     loadData(tab);
     saveState();
   }
@@ -226,58 +227,10 @@ export function removeTag(uid) {
   removeTags(activeTab(), [uid]);
 }
 
-// The tag list lives in two places - the pill strip and the settings table -
-// and they must never disagree, so nothing renders one without the other.
+// The settings table is the only view of the tag list, so rendering the tags
+// is rendering the table. Kept as its own name because half the app calls it.
 export function renderTags() {
-  renderTagbar();
   renderTagTable();
-}
-
-function renderTagbar() {
-  const bar = $("tagbar");
-  bar.innerHTML = "";
-  const tab = activeTab();
-  for (const tag of tab.tags) {
-    const pill = el("div", "pill" + (tag.uid === tab.axisUid ? " axis" : "") +
-      (tag.visible === false ? " hidden-tag" : ""));
-    pill.style.color = tag.color;
-    pill.title = `${tag.description} [${tag.unit}]\nClick: use for grid · Dot: hide/show · ⚙: settings, in the tag table`;
-
-    const dot = el("span", "dot");
-    dot.style.background = tag.color;
-    dot.addEventListener("click", (e) => {
-      e.stopPropagation();
-      setTagField(tab, tag, "visible", tag.visible === false);
-    });
-    pill.appendChild(dot);
-    pill.appendChild(el("span", "name", tagDisplay(tab, tag)));
-
-    const notes = [];
-    if (tag.sample !== "INT") notes.push(tag.sample);
-    if (tag.interval !== "auto") notes.push(intervalLabel(tag.interval));
-    if (tag.min != null || tag.max != null) {
-      notes.push(`[${tag.min ?? "auto"}…${tag.max ?? "auto"}]`);
-    }
-    if (notes.length) pill.appendChild(el("span", "range-note", notes.join(" ")));
-
-    const gear = el("button", "gear", "⚙");
-    gear.title = "Settings for this tag, in the table below";
-    gear.addEventListener("click", (e) => { e.stopPropagation(); openTagTable(tag); });
-    pill.appendChild(gear);
-
-    const close = el("button", "close", "×");
-    close.title = "Remove tag";
-    close.addEventListener("click", (e) => { e.stopPropagation(); removeTag(tag.uid); });
-    pill.appendChild(close);
-
-    pill.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      showPillMenu(e, tag);
-    });
-
-    pill.addEventListener("click", () => setAxisOwner(tab, tag.uid));
-    bar.appendChild(pill);
-  }
 }
 
 // Maps cost a request per tag, so they are fetched the first time a row that
@@ -318,8 +271,8 @@ export function moveTag(tab, from, to) {
   saveState();
 }
 
-// Every tag setting goes through here, so the pills, the settings table and
-// anything else that edits a tag agree on what a change actually costs:
+// Every tag setting goes through here, so the settings table and anything
+// else that edits a tag agree on what a change actually costs:
 // colour and scale only redraw, while sampling, interval and map mean a new
 // request to the historian.
 export function setTagFields(tab, tag, patch) {
@@ -347,6 +300,26 @@ export function setTagFields(tab, tag, patch) {
     } else if (key === "interval") {
       tag.interval = normalizeInterval(value);
       refetch = live = true;
+    } else if (key === "name") {
+      const next = normalizeTagName(String(value).trim());
+      if (!next || next === tag.name) continue;
+      tag.name = next;
+      // Everything else on the tag described the old name.
+      tag.description = "";
+      tag.unit = "";
+      tag.maps = [];
+      tag.map = null;
+      tag._mapsChecked = tag._unitChecked = tag._descChecked = false;
+      tag._error = null;
+      // Drop the old trace now rather than at the next answer: leaving it up
+      // would read as if the new name had worked.
+      const r = rt(tab);
+      if (r.raw) {
+        delete r.raw[tag.uid];
+        rebuildJoined(tab, r);
+        redraw = true;
+      }
+      refetch = true;
     } else if (key === "map") {
       // maps[0] is the default and is stored as null, so the two spellings of
       // "the default map" cannot read as two different traces.
@@ -360,10 +333,12 @@ export function setTagFields(tab, tag, patch) {
   // A manually pinned interval decides whether live is allowed at all.
   if (live) { enforceLiveGuard(tab); renderToolbar(); }
   renderTags();
-  // Never both: a refetch leaves the old data on screen until the answer
-  // lands, which is what keeps a sampling change from flickering.
+  // A redraw and a refetch together only happen on a rename, which has just
+  // taken the old trace away: everything else leaves the old data on screen
+  // until the answer lands, which is what keeps a sampling change from
+  // flickering.
+  if (redraw) renderChart();
   if (refetch) loadData(tab);
-  else if (redraw) renderChart();
   if (nav) renderNavigator();
   saveState();
 }

@@ -23,14 +23,14 @@ export function newTab(name) {
     id: `t${Date.now()}_${tabSeq}`,
     name: name || `Plot ${state ? state.tabs.length + 1 : 1}`,
     tags: [],                 // see makeTag()
-    range: { preset: "24h" }, // or {start, end, fromPreset}
+    range: { preset: "24h" }, // or {start, end}
+    baseRange: { preset: "24h" }, // the window the user asked for; reset zoom
     linked: false,            // participates in the shared time range
     axisMode: "stacked",      // "stacked" (PE-style gutter) | "single" | "all"
     axisUid: null,            // tag whose grid (and single axis) is shown
     labels: [],               // free-text labels for grouping saved plots
     scooters: [],             // {t: epoch seconds, dy: readout box y-offset px}
     live: true,               // follow "now", refreshing every LIVE_INTERVAL_MS
-    tagTable: false,          // settings table docked under the chart
     history: [],              // previous ranges, for zoom-back (not persisted)
   };
 }
@@ -77,7 +77,15 @@ function migrateTab(tab, oldState) {
   // as default ("all" is the stored name for side-by-side from now on).
   tab.axisMode = !tab.axisMode || tab.axisMode === "multi" ? "stacked" : tab.axisMode;
   tab.history = [];
-  tab.tagTable = tab.tagTable === true;
+  // fromPreset only ever remembered a preset; baseRange also remembers typed
+  // dates, so an absolute window is its own home from now on.
+  tab.baseRange = tab.baseRange || (tab.range.preset
+    ? { preset: tab.range.preset }
+    : tab.range.fromPreset
+      ? { preset: tab.range.fromPreset }
+      : { start: tab.range.start, end: tab.range.end });
+  delete tab.range.fromPreset;
+  delete tab.tagTable;        // the settings table is always shown now
   for (const tag of tab.tags) {
     tag.uid = tag.uid || newUid();
     tag.name = normalizeTagName(tag.name);
@@ -134,7 +142,7 @@ export function persistState() {
   try {
     const json = JSON.stringify(state, (key, value) =>
       key === "history" || key === "_wheeling" || key === "_mapsChecked" ||
-      key === "_unitChecked" || key === "_descChecked"
+      key === "_unitChecked" || key === "_descChecked" || key === "_error"
         ? undefined : value
     );
     localStorage.setItem(STORAGE_KEY, json);

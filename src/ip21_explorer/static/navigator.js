@@ -23,8 +23,8 @@ let navDrag = null;             // {mode, startX, start, end} while dragging
 
 // The band tracks one tag, not all of them: several traces at thumbnail height
 // would be unreadable, and each one costs another request. It follows the grid
-// tag - the one whose axis is shown, picked by clicking its pill - so the
-// choice is already visible in the tag bar, and the band names it too.
+// tag - the one whose axis is shown, picked in the table's Grid column - so the
+// choice is already visible in the table, and the band names it too.
 function navTag(tab) {
   return byUid(tab, tab.axisUid) || tab.tags.find((t) => t.visible !== false);
 }

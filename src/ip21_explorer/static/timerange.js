@@ -38,25 +38,36 @@ export function popHistory() {
   saveState();
 }
 
+// Back to the window the user actually asked for: the preset they pressed or
+// the dates they typed. Zooming and panning never touch baseRange, so this is
+// always the last deliberate choice rather than wherever the wheel left off.
 export function resetZoom() {
   const tab = activeTab();
-  const preset = tab.range.preset || tab.range.fromPreset;
-  if (preset && PRESETS.some((p) => p.label === preset)) {
-    setPreset(preset);
-  } else if (tab.history && tab.history.length) {
-    tab.range = tab.history[0];
-    tab.history = [];
-    propagateRange(tab);
-    loadData(tab);
-    renderToolbar();
-    saveState();
+  // Tabs saved before baseRange existed fall back to the oldest remembered
+  // range, which is where the first zoom of the session started from.
+  const home = tab.baseRange || (tab.history || [])[0];
+  if (!home) return;
+  if (home.preset) {
+    if (PRESETS.some((p) => p.label === home.preset)) setPreset(home.preset);
+    return;
   }
+  if (home.start == null) return;
+  pushHistory(tab);
+  tab.live = false;
+  tab.range = { start: home.start, end: home.end };
+  propagateRange(tab);
+  if (chart) chart.setScale("x", { min: home.start, max: home.end });
+  loadData(tab);
+  renderToolbar();
+  renderNavigator();
+  saveState();
 }
 
 export function setPreset(label) {
   const tab = activeTab();
   pushHistory(tab);
   tab.range = { preset: label };
+  tab.baseRange = { preset: label };
   propagateRange(tab);
   loadData(tab);
   renderToolbar();
@@ -81,8 +92,7 @@ export function setAbsoluteRange(tab, start, end, debounced, keepLive) {
   // A continuous wheel-zoom session collapses to one history entry.
   if (!debounced || !tab._wheeling) pushHistory(tab);
   if (debounced) tab._wheeling = true;
-  const fromPreset = tab.range.preset || tab.range.fromPreset || null;
-  tab.range = { start, end, fromPreset };
+  tab.range = { start, end };
   propagateRange(tab);
   if (chart) chart.setScale("x", { min: start, max: end }); // instant visual feedback
   clearTimeout(zoomTimer);
@@ -93,6 +103,15 @@ export function setAbsoluteRange(tab, start, end, debounced, keepLive) {
   }
   renderToolbar();
   renderNavigator();
+  saveState();
+}
+
+// A window typed into the time fields is a deliberate choice, not a zoom, so
+// it becomes what "Reset zoom" goes back to. Read back off tab.range because
+// setAbsoluteRange may have clamped what was asked for.
+export function setBaseRange(tab, start, end) {
+  setAbsoluteRange(tab, start, end, false);
+  tab.baseRange = { start: tab.range.start, end: tab.range.end };
   saveState();
 }
 
@@ -175,7 +194,7 @@ export function liveTick() {
   // Slide the absolute window to end at now, without touching zoom history.
   const span = tab.range.end - tab.range.start;
   const now = Date.now() / 1000;
-  tab.range = { start: now - span, end: now, fromPreset: tab.range.fromPreset };
+  tab.range = { start: now - span, end: now };
   propagateRange(tab);
   if (chart) chart.setScale("x", { min: now - span, max: now });
   loadData(tab);
