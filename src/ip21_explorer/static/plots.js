@@ -57,6 +57,10 @@ function configToTab(name, config) {
       maps: t.maps,
       unitEdited: t.unitEdited,
       descEdited: t.descEdited,
+      lineStyle: t.lineStyle,
+      lineWidth: t.lineWidth,
+      points: t.points,
+      symbol: t.symbol,
     });
     tag.map = t.map ?? null;
     tag.color = t.color || null;

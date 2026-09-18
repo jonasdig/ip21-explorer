@@ -1,4 +1,4 @@
-/* The XY plot: one tag against another, every point coloured by when it is.
+/* The XY plot: tags against a shared x, every point coloured by when it is.
 
    A trend answers "what happened"; this answers "how do these two move
    together, and has that changed". The colour is the whole point - without it
@@ -7,6 +7,7 @@
    moment wherever it appears. */
 
 import { chartSize, renderChart, scaleRangeFn } from "./chart.js";
+import { LINE_DASHES, LINE_WIDTHS, XY_SYMBOLS } from "./constants.js";
 import { showContextMenu } from "./menu.js";
 import { alignOnto, unionTimes } from "./resample.js";
 import { activeTab, rt, saveState, state } from "./state.js";
@@ -46,30 +47,40 @@ function xyGradient() {
   return `linear-gradient(to top, ${stops.join(", ")})`;
 }
 
-// Which two tags are plotted, or why none are. The tick box in the table is
-// the choice: it already means "this one is on the plot", and a plot of one
-// tag against another can only mean two of them. Row order settles which is
-// which, and xUid only says whether they have been swapped round.
-export function xyPairTags(tab) {
+// What is plotted, or why nothing is. The tick box in the table is the
+// choice: every ticked row takes part, one of them on the shared x axis and
+// each of the others as a series of its own against it - identical pumps into
+// one header, say. xUid says which ticked row is x; the top one otherwise.
+export function xySeriesTags(tab) {
   const shown = tab.tags.filter((t) => t.visible !== false);
   if (shown.length < 2) {
-    return { hint: "XY: tick two tags in the table to plot them against each other." };
-  }
-  if (shown.length > 2) {
-    return { hint: `XY: ${shown.length} tags are ticked - untick all but two.` };
+    return { hint: "XY: tick the x tag and at least one y tag in the table." };
   }
   const x = shown.find((t) => t.uid === tab.xUid) || shown[0];
-  return { x, y: shown.find((t) => t !== x) };
+  return { x, ys: shown.filter((t) => t !== x) };
 }
+
+// A series' symbol: the one chosen in its colour menu, or else one by its
+// place among the y series, so two of them never look alike by default.
+function symbolOf(tag, index) {
+  return tag.symbol || XY_SYMBOLS[index % XY_SYMBOLS.length];
+}
+
+// The text stand-in for each symbol, for the hover box and the legend.
+const SYMBOL_GLYPHS = {
+  circle: "●", square: "■", triangle: "▲", diamond: "◆",
+  cross: "✕", plus: "+",
+};
+export function symbolGlyph(symbol) { return SYMBOL_GLYPHS[symbol] || SYMBOL_GLYPHS.circle; }
 
 // One point per timestamp either tag has, dropped where either side has
 // nothing: a scatter has no line to break, so a hole is simply not a point.
-export function xyPairs(tab, r, pair) {
-  const rx = r.raw[pair.x.uid], ry = r.raw[pair.y.uid];
+function pairUp(r, x, y) {
+  const rx = r.raw[x.uid], ry = r.raw[y.uid];
   if (!rx || !ry) return null;
   const inputs = [
-    { t: rx.t, v: rx.v, step: !!pair.x.step },
-    { t: ry.t, v: ry.v, step: !!pair.y.step },
+    { t: rx.t, v: rx.v, step: !!x.step },
+    { t: ry.t, v: ry.v, step: !!y.step },
   ];
   const ts = unionTimes(inputs.map((input) => input.t));
   const [xv, yv] = alignOnto(inputs, ts);
@@ -82,87 +93,167 @@ export function xyPairs(tab, r, pair) {
     stamps.push(ts[i]);
     colors.push(xyColor((ts[i] - r.start) / span));
   }
-  // uPlot's mode 2: every series carries its own x, so nothing is joined. The
-  // timestamps ride along as a third column that uPlot never looks at.
-  return xs.length ? { data: [null, [xs, ys, stamps]], colors } : null;
+  return xs.length ? { cols: [xs, ys, stamps], colors } : null;
+}
+
+// Every y series against the shared x. uPlot's mode 2 lets each series carry
+// its own x, so nothing is joined; the timestamps ride along as a third column
+// uPlot never looks at. Series with nothing in common with x are left out.
+export function xySeriesData(tab, r, set) {
+  const series = [];
+  set.ys.forEach((tag, i) => {
+    const paired = pairUp(r, set.x, tag);
+    if (paired) series.push({ tag, symbol: symbolOf(tag, i), ...paired });
+  });
+  return series.length
+    ? { data: [null, ...series.map((one) => one.cols)], series }
+    : null;
 }
 
 function axisLabel(tab, tag) {
   return tag.unit ? `${tagLabel(tab, tag)} [${tag.unit}]` : tagLabel(tab, tag);
 }
 
-// uPlot draws nothing itself here (the series' paths return null): one colour
-// per series is the one thing it cannot do, and that is the whole feature.
+// The y axis serves every series: one is named as before; several are listed,
+// with their unit when they share one.
+function yAxisLabel(tab, tags) {
+  if (tags.length === 1) return axisLabel(tab, tags[0]);
+  const units = [...new Set(tags.map((t) => t.unit).filter(Boolean))];
+  let names = tags.map((t) => tagLabel(tab, t)).join(", ");
+  if (names.length > 60) names = `${tags.length} series`;
+  return units.length === 1 ? `${names} [${units[0]}]` : names;
+}
+
+// The y scale honours the table's Min/Max over all the series at once: the
+// lowest Min anyone set and the highest Max, each left automatic otherwise.
+function sharedRange(tags) {
+  const mins = tags.map((t) => t.min).filter((v) => v != null);
+  const maxs = tags.map((t) => t.max).filter((v) => v != null);
+  return scaleRangeFn({
+    min: mins.length ? Math.min(...mins) : null,
+    max: maxs.length ? Math.max(...maxs) : null,
+  });
+}
+
 // Canvas coordinates are device pixels - uPlot puts no transform on its
-// context - so every size is multiplied by the ratio, as axis-gutter.js does.
-function drawXyPoints(pairs) {
+// context - so every size is scaled by the ratio, as axis-gutter.js does.
+function drawSymbol(ctx, symbol, x, y, r) {
+  ctx.beginPath();
+  if (symbol === "square") {
+    ctx.rect(x - r * 0.9, y - r * 0.9, r * 1.8, r * 1.8);
+  } else if (symbol === "triangle") {
+    ctx.moveTo(x, y - r * 1.2);
+    ctx.lineTo(x + r * 1.1, y + r * 0.8);
+    ctx.lineTo(x - r * 1.1, y + r * 0.8);
+    ctx.closePath();
+  } else if (symbol === "diamond") {
+    ctx.moveTo(x, y - r * 1.3);
+    ctx.lineTo(x + r * 1.1, y);
+    ctx.lineTo(x, y + r * 1.3);
+    ctx.lineTo(x - r * 1.1, y);
+    ctx.closePath();
+  } else if (symbol === "cross" || symbol === "plus") {
+    // Line symbols: stroked, in the point's own colour.
+    const d = r * 1.15;
+    if (symbol === "cross") {
+      ctx.moveTo(x - d, y - d); ctx.lineTo(x + d, y + d);
+      ctx.moveTo(x + d, y - d); ctx.lineTo(x - d, y + d);
+    } else {
+      ctx.moveTo(x - d * 1.2, y); ctx.lineTo(x + d * 1.2, y);
+      ctx.moveTo(x, y - d * 1.2); ctx.lineTo(x, y + d * 1.2);
+    }
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.lineWidth = Math.max(1.5, r * 0.55);
+    ctx.stroke();
+    return;
+  } else {
+    ctx.arc(x, y, r, 0, TAU);
+  }
+  ctx.fill();
+}
+
+// uPlot draws nothing itself here (the series' paths return null): a colour
+// per point is the one thing it cannot do, and that is the whole feature.
+function drawXyPoints(plot) {
   return (u) => {
-    const [xs, ys] = u.data[1];
     const { ctx, bbox } = u;
     const dpr = window.devicePixelRatio || 1;
-    const px = new Array(xs.length), py = new Array(xs.length);
-    for (let i = 0; i < xs.length; i++) {
-      px[i] = u.valToPos(xs[i], "x", true);
-      py[i] = u.valToPos(ys[i], "y", true);
-    }
-    u._xyPx = { px, py };   // the cursor hit test measures against these
-
+    u._xyPx = [];
     ctx.save();
     ctx.beginPath();
     ctx.rect(bbox.left, bbox.top, bbox.width, bbox.height);
     ctx.clip();
-    // The trail first, under the dots: a cloud of points says where the
-    // process has been, the line says which way it was going.
-    ctx.lineWidth = dpr;
-    ctx.globalAlpha = 0.3;
-    for (let i = 1; i < px.length; i++) {
-      ctx.beginPath();
-      ctx.moveTo(px[i - 1], py[i - 1]);
-      ctx.lineTo(px[i], py[i]);
-      ctx.strokeStyle = pairs.colors[i];
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-    const rad = XY_DOT_R * dpr;
-    for (let i = 0; i < px.length; i++) {
-      ctx.beginPath();
-      ctx.arc(px[i], py[i], rad, 0, TAU);
-      ctx.fillStyle = pairs.colors[i];
-      ctx.fill();
-    }
+    plot.series.forEach((one, k) => {
+      const [xs, ys] = u.data[k + 1];
+      const px = new Array(xs.length), py = new Array(xs.length);
+      for (let i = 0; i < xs.length; i++) {
+        px[i] = u.valToPos(xs[i], "x", true);
+        py[i] = u.valToPos(ys[i], "y", true);
+      }
+      u._xyPx.push({ px, py });   // the cursor hit test measures against these
+
+      // The trail, under the dots, in the series' own colour and line: the
+      // dots already carry the time, so the line is free to say which series.
+      const tag = one.tag;
+      if (tag.lineStyle !== "none" && px.length > 1) {
+        const width = (LINE_WIDTHS[tag.lineWidth] || LINE_WIDTHS.normal) * dpr;
+        ctx.lineWidth = width;
+        ctx.setLineDash((LINE_DASHES[tag.lineStyle] || []).map((d) => d * width));
+        ctx.lineCap = tag.lineStyle === "dot" ? "round" : "butt";
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = tag.color;
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath();
+        ctx.moveTo(px[0], py[0]);
+        for (let i = 1; i < px.length; i++) ctx.lineTo(px[i], py[i]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+      const rad = XY_DOT_R * dpr;
+      for (let i = 0; i < px.length; i++) {
+        ctx.fillStyle = one.colors[i];
+        drawSymbol(ctx, one.symbol, px[i], py[i], rad);
+      }
+    });
     ctx.restore();
   };
 }
 
-// uPlot's own nearest-point search is one-dimensional; a scatter needs both.
-// Measured against the pixels the dots were actually drawn at, so what
-// lights up is what the pointer is over.
+// uPlot asks for a point per series; a scatter wants the one nearest the
+// pointer over all of them, or every series would light up a ring of its
+// own. So the first ask settles it for this pointer position and the rest
+// read the answer: only the winning series gets an index.
 function xyNearestIdx(u, seriesIdx) {
-  if (seriesIdx !== 1 || !u._xyPx) return null;
-  const dpr = window.devicePixelRatio || 1;
-  const cx = (u.cursor.left + u.bbox.left / dpr) * dpr;
-  const cy = (u.cursor.top + u.bbox.top / dpr) * dpr;
-  if (u.cursor.left < 0 || u.cursor.top < 0) return null;
-  const { px, py } = u._xyPx;
-  const limit = (XY_HOVER_PX * dpr) ** 2;
-  let best = null, bestDist = limit;
-  for (let i = 0; i < px.length; i++) {
-    const dx = px[i] - cx, dy = py[i] - cy;
-    const dist = dx * dx + dy * dy;
-    if (dist <= bestDist) { bestDist = dist; best = i; }
+  if (!u._xyPx || u.cursor.left < 0 || u.cursor.top < 0) return null;
+  if (seriesIdx === 1) {
+    const dpr = window.devicePixelRatio || 1;
+    const cx = u.cursor.left * dpr + u.bbox.left;
+    const cy = u.cursor.top * dpr + u.bbox.top;
+    let best = null, bestDist = (XY_HOVER_PX * dpr) ** 2;
+    u._xyPx.forEach(({ px, py }, k) => {
+      for (let i = 0; i < px.length; i++) {
+        const dx = px[i] - cx, dy = py[i] - cy;
+        const dist = dx * dx + dy * dy;
+        if (dist <= bestDist) { bestDist = dist; best = { series: k + 1, idx: i }; }
+      }
+    });
+    u._xyHit = best;
   }
-  return best;
+  const hit = u._xyHit;
+  return hit && hit.series === seriesIdx ? hit.idx : null;
 }
 
 function onXyCursor(u) {
   const box = $("hover-box");
-  const idx = u.cursor.idxs ? u.cursor.idxs[1] : null;
-  if (idx == null) { box.classList.add("hidden"); return; }
+  const hit = u._xyHit;
+  const plot = u._xyPlot;
+  if (!hit || !plot) { box.classList.add("hidden"); return; }
   const tab = activeTab();
   const r = rt(tab);
-  const pair = xyPairTags(tab);
-  if (!pair.x) { box.classList.add("hidden"); return; }
-  const [xs, ys, ts] = u.data[1];
+  const one = plot.series[hit.series - 1];
+  const [xs, ys, ts] = u.data[hit.series];
+  const idx = hit.idx;
 
   box.innerHTML = "";
   const head = el("div", "time");
@@ -171,11 +262,12 @@ function onXyCursor(u) {
   head.appendChild(when);
   head.appendChild(el("span", null, fmtTime(ts[idx], true)));
   box.appendChild(head);
-  for (const [tag, value] of [[pair.x, xs[idx]], [pair.y, ys[idx]]]) {
+  const rows = [[plot.x, xs[idx], null], [one.tag, ys[idx], one.symbol]];
+  for (const [tag, value, symbol] of rows) {
     const row = el("div", "row");
-    const dot = el("span", "dot");
-    dot.style.background = tag.color;
-    row.appendChild(dot);
+    const mark = el("span", symbol ? "glyph" : "dot", symbol ? symbolGlyph(symbol) : null);
+    if (symbol) mark.style.color = tag.color; else mark.style.background = tag.color;
+    row.appendChild(mark);
     row.appendChild(el("span", "name", tagLabel(tab, tag)));
     row.appendChild(el("span", "val", `${fmtVal(value)} ${tag.unit}`));
     box.appendChild(row);
@@ -192,10 +284,12 @@ function onXyReady(u) {
   });
 }
 
-export function xyOpts(tab, r, pair, pairs) {
+export function xyOpts(tab, r, set, plot) {
   const size = chartSize();
   const grid = { stroke: "#232834", width: 1 };
   const ticks = { stroke: "#2e3442" };
+  const ys = plot.series.map((one) => one.tag);
+  plot.x = set.x;
   return {
     mode: 2,
     width: size.width,
@@ -203,20 +297,21 @@ export function xyOpts(tab, r, pair, pairs) {
     // time: false matters: the x scale would otherwise print dates on an axis
     // of process values, because mode 2 takes its x key from the facet.
     scales: {
-      x: { time: false, range: scaleRangeFn(pair.x) },
-      y: { time: false, range: scaleRangeFn(pair.y) },
+      x: { time: false, range: scaleRangeFn(set.x) },
+      y: { time: false, range: sharedRange(ys) },
     },
     series: [
       {},
-      {
+      ...plot.series.map((one) => ({
         facets: [{ scale: "x", auto: true }, { scale: "y", auto: true }],
-        stroke: pair.y.color,
+        stroke: one.tag.color,
         paths: () => null,
-      },
+      })),
     ],
     axes: [
-      { scale: "x", stroke: pair.x.color, grid, ticks, label: axisLabel(tab, pair.x), labelSize: 24 },
-      { scale: "y", stroke: pair.y.color, grid, ticks, label: axisLabel(tab, pair.y), labelSize: 24 },
+      { scale: "x", stroke: set.x.color, grid, ticks, label: axisLabel(tab, set.x), labelSize: 24 },
+      { scale: "y", stroke: ys.length === 1 ? ys[0].color : "#8b93a3", grid, ticks,
+        label: yAxisLabel(tab, ys), labelSize: 24 },
     ],
     legend: { show: false },
     cursor: {
@@ -228,26 +323,44 @@ export function xyOpts(tab, r, pair, pairs) {
       dataIdx: xyNearestIdx,
     },
     hooks: {
-      draw: [drawXyPoints(pairs)],
+      draw: [drawXyPoints(plot)],
       setCursor: [onXyCursor],
-      ready: [onXyReady],
+      // The hover box needs to know which series is which; nothing asks for it
+      // before the first draw is done.
+      ready: [(u) => { u._xyPlot = plot; onXyReady(u); }],
     },
   };
 }
 
 // The colour bar: what a colour means, in the same stops the dots are drawn
-// from, so the two cannot drift apart.
-export function renderXyLegend(r) {
+// from so the two cannot drift apart - and, under it, which symbol and line
+// belong to which series.
+export function renderXyLegend(r, plot) {
   const bar = $("color-bar");
   bar.innerHTML = "";
+  const ramp = el("div", "ramp");
   const strip = el("div", "strip");
   strip.style.background = xyGradient();
-  bar.appendChild(strip);
+  ramp.appendChild(strip);
   const labels = el("div", "labels");
   labels.appendChild(el("span", null, fmtTime(r.end, false)));
   labels.appendChild(el("span", null, fmtTime(r.start + (r.end - r.start) / 2, false)));
   labels.appendChild(el("span", null, fmtTime(r.start, false)));
-  bar.appendChild(labels);
+  ramp.appendChild(labels);
+  bar.appendChild(ramp);
+  if (plot && plot.series.length > 1) {
+    const list = el("div", "series");
+    const tab = activeTab();
+    for (const one of plot.series) {
+      const item = el("div", "item");
+      const glyph = el("span", "glyph", symbolGlyph(one.symbol));
+      glyph.style.color = one.tag.color;
+      item.appendChild(glyph);
+      item.appendChild(el("span", "name", tagLabel(tab, one.tag)));
+      list.appendChild(item);
+    }
+    bar.appendChild(list);
+  }
   bar.classList.remove("hidden");
   placeXyLegend();
 }
@@ -320,22 +433,21 @@ export function toggleXyMode() {
   saveState();
 }
 
-// Nothing but row order distinguishes the two ticked rows, so remembering
-// which one is on the x axis is the whole of "swap the axes".
-export function swapXyAxes() {
+// Which ticked row the others are plotted against.
+export function setXyAxis(uid) {
   const tab = activeTab();
-  const pair = xyPairTags(tab);
-  if (!pair.x) return;
-  tab.xUid = pair.y.uid;
+  tab.xUid = uid;
   renderToolbar();
   renderChart();
   saveState();
 }
 
-// The button names the pair, so which two rows are plotted - and which way
-// round - can be read without counting tick boxes.
+// The button names what is on show, so it can be read without counting tick
+// boxes: the pair when there is one y, the count when there are several.
 export function xyModeLabel(tab) {
   if (!isXyMode(tab)) return "XY: off";
-  const pair = xyPairTags(tab);
-  return pair.x ? `XY: ${tagLabel(tab, pair.x)} \u2192 ${tagLabel(tab, pair.y)}` : "XY: on";
+  const set = xySeriesTags(tab);
+  if (!set.x) return "XY: on";
+  const ys = set.ys.length === 1 ? tagLabel(tab, set.ys[0]) : `${set.ys.length} series`;
+  return `XY: ${tagLabel(tab, set.x)} \u2192 ${ys}`;
 }

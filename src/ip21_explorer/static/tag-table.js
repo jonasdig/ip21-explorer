@@ -243,10 +243,10 @@ function updateTagRow(tab, tag, row) {
   row.classList.toggle("hidden-tag", tag.visible === false);
   set("visible", (c) => {
     c.checked = tag.visible !== false;
-    // Same box, same meaning - "this one is on the plot" - but a plot of one
-    // tag against another can only hold two of them.
+    // Same box, same meaning - "this one is on the plot": in XY that means
+    // the shared x or one of the series plotted against it.
     c.title = isXyMode(tab)
-      ? "Use in the XY plot - tick exactly two"
+      ? "Use in the XY plot: one x (right-click \u2192 Use as X axis) and one or more y"
       : "Show this tag on the plot";
   });
   set("axis", (c) => { c.checked = tab.axisUid === tag.uid; c.name = `axis-owner-${tab.id}`; });

@@ -5,6 +5,14 @@ export const PALETTE = [
   "#4DD0E1", "#F06292", "#AED581", "#90A4AE", "#FF8A65", "#7986CB",
 ];
 
+// How a tag's trace is drawn, chosen in the colour menu. Widths are CSS px;
+// dashes are canvas dash patterns, scaled by the line width where drawn.
+export const LINE_WIDTHS = { thin: 1, normal: 1.6, thick: 3 };
+export const LINE_DASHES = { solid: [], dash: [7, 4], dot: [1, 3.5], none: [] };
+// XY point symbols, in the order a series with "auto" is given them, so two
+// pumps plotted side by side never look alike before anyone has chosen.
+export const XY_SYMBOLS = ["circle", "square", "triangle", "diamond", "cross", "plus"];
+
 export const PRESETS = [
   { label: "1h", s: 3600 },
   { label: "8h", s: 8 * 3600 },

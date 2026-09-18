@@ -54,18 +54,22 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   Formulas may refer to other formulas by their description, and a cycle says
   so by name. Give the row a unit and a short name in the Unit and Description
   cells and that is what the readouts and the CSV use
-- **XY plot with a time colour**: one tag against another, every point coloured
-  by when it is and joined by a faint trail in time order, so drift shows up as
-  the cloud moving rather than as two trends that have to be compared by eye.
-  The pair is the table's own show column: tick exactly two rows and those two
-  are plotted, the upper one on the x axis — tick more or fewer and the plot
-  says so instead of guessing. *Swap X and Y axes* sits in the right-click menu
-  of both the plot and a row. The colour bar says which colour is when - drag it
-  out of the way, double-click it to put it back - and the
+- **XY plot with a time colour**: tags against a shared x, every point
+  coloured by when it is, so drift shows up as the cloud moving rather than as
+  trends that have to be compared by eye. The table's show column decides what
+  takes part: one ticked row is the x axis (right-click a row for *Use as X
+  axis*, or pick it from the plot's own right-click menu) and every other
+  ticked row is a series against it - identical pumps into one header, say.
+  Each series gets its own point symbol and a trail in its own line colour and
+  style; the legend lists them under the colour bar, which says which colour
+  is when. Drag the legend out of the way, double-click it to put it back. The
   ramp always spans the loaded window, so a colour means the same moment
   wherever it appears. Drag to zoom the two value axes, double-click to undo
-  it; the time window is still chosen with the presets, the time fields and the
-  navigator
+  it; the time window is still chosen with the presets, the time fields and
+  the navigator
+- **Line style per tag**, from the colour menu in the table: solid, dashed,
+  dotted or no line (dots only), thin to thick, optional dots on every sample
+  in the trend view, and the XY point symbol
 - **Individual y-scale per tag** (auto or manual min/max); Process
   Explorer-style stacked axis gutter by default (all tags share a few
   gridlines, values stacked in tag colors), with a toggle cycling to

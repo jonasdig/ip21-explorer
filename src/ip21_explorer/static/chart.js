@@ -3,7 +3,7 @@
 import {
   drawStackedGrid, drawStackedLabels, stackedGutter,
 } from "./axis-gutter.js";
-import { MAX_SPAN_S, MIN_SPAN_S } from "./constants.js";
+import { LINE_DASHES, LINE_WIDTHS, MAX_SPAN_S, MIN_SPAN_S } from "./constants.js";
 import { loadData } from "./data.js";
 import { showContextMenu } from "./menu.js";
 import {
@@ -14,8 +14,8 @@ import { tagDisplay } from "./tags.js";
 import { setAbsoluteRange } from "./timerange.js";
 import { $, el, fmtTime, fmtVal, nearestValue, pad2 } from "./util.js";
 import {
-  hideXyLegend, isXyMode, renderXyLegend, xyModeLabel, xyOpts, xyPairTags,
-  xyPairs,
+  hideXyLegend, isXyMode, renderXyLegend, xyModeLabel, xyOpts, xySeriesData,
+  xySeriesTags,
 } from "./xy-chart.js";
 
 const EMPTY_HINT = "Search for tags above, or type a tag name in the table below.";
@@ -82,17 +82,31 @@ function makeOpts(tab, r) {
   for (const uid of r.tagOrder) {
     const tag = byUid(tab, uid);
     scales[uid] = { range: scaleRangeFn(tag) };
+    const width = LINE_WIDTHS[tag.lineWidth] || LINE_WIDTHS.normal;
+    const noLine = tag.lineStyle === "none";
     series.push({
       label: reqName(tag),
       stroke: tag.color,
-      width: 1.6,
+      width,
+      // Dash lengths grow with the line, or a thick dotted line reads solid.
+      dash: (LINE_DASHES[tag.lineStyle] || []).map((d) => d * Math.max(1, width / 1.6)),
+      cap: tag.lineStyle === "dot" ? "round" : "butt",
       scale: uid,
       spanGaps: true,
       show: tag.visible !== false,
-      points: { show: false },
+      // With no line the samples are the only thing left to draw, so they are
+      // shown whether or not the tag asked for points.
+      points: {
+        show: tag.points === true || noLine,
+        size: Math.max(4, width * 2.5),
+        width: 1,
+        stroke: tag.color,
+        fill: tag.color,
+      },
       // Step rendering holds the previous value until the next sample,
       // which is the honest shape for discrete/status tags.
-      paths: tag.step ? uPlot.paths.stepped({ align: 1 }) : undefined,
+      paths: noLine ? () => null
+        : tag.step ? uPlot.paths.stepped({ align: 1 }) : undefined,
     });
   }
 
@@ -170,15 +184,15 @@ export function renderChart() {
 
   if (isXyMode(tab)) {
     // No scooters and no stacked gutter here: both of them are about time.
-    // The pair is whatever is ticked in the table, so the button is repainted
-    // from here: ticking a row renders the chart, not the toolbar.
-    const pair = xyPairTags(tab);
+    // What is plotted is whatever is ticked in the table, so the button is
+    // repainted from here: ticking a row renders the chart, not the toolbar.
+    const set = xySeriesTags(tab);
     $("xy-mode").textContent = xyModeLabel(tab);
-    if (pair.hint) { showHint(pair.hint); return; }
-    const pairs = xyPairs(tab, r, pair);
-    if (!pairs) { showHint("XY needs two tags with data in this window."); return; }
-    chart = new uPlot(xyOpts(tab, r, pair, pairs), pairs.data, target);
-    renderXyLegend(r);
+    if (set.hint) { showHint(set.hint); return; }
+    const plot = xySeriesData(tab, r, set);
+    if (!plot) { showHint("XY needs the x tag and a y tag with data in this window."); return; }
+    chart = new uPlot(xyOpts(tab, r, set, plot), plot.data, target);
+    renderXyLegend(r, plot);
     return;
   }
 

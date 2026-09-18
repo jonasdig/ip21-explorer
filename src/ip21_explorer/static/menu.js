@@ -5,14 +5,14 @@ import {
 } from "./analysis.js";
 import { currentXRange } from "./chart.js";
 import { copyTags, pasteFromClipboard } from "./clipboard.js";
-import { PALETTE } from "./constants.js";
+import { PALETTE, XY_SYMBOLS } from "./constants.js";
 import { addScooterAt, mountScooters } from "./scooters.js";
-import { activeTab, rt, saveState } from "./state.js";
+import { activeTab, byUid, rt, saveState } from "./state.js";
 import { focusTagCell } from "./tag-table.js";
-import { duplicateTag, removeTag, setTagField } from "./tags.js";
+import { duplicateTag, removeTag, setTagField, tagLabel } from "./tags.js";
 import { popHistory, resetZoom } from "./timerange.js";
-import { isXyMode, swapXyAxes, xyPairTags } from "./xy-chart.js";
 import { $, el } from "./util.js";
+import { isXyMode, setXyAxis, symbolGlyph, xySeriesTags } from "./xy-chart.js";
 
 // Opens #context-menu at the event position with the given items, where an
 // item is [label, shortcut, action, disabled] and null is a separator.
@@ -77,6 +77,58 @@ export function openSwatchMenu(anchor, tab, tag) {
   });
   custom.appendChild(picker);
   menu.appendChild(custom);
+  menu.appendChild(el("div", "sep"));
+
+  // How the trace is drawn. Unlike a colour, these are things to try out, so
+  // a click redraws the plot and the menu and leaves the menu open.
+  const choose = (key, value) => {
+    setTagField(tab, tag, key, value);
+    openSwatchMenu(anchor, tab, byUid(tab, tag.uid) || tag);
+  };
+  const optionRow = (label, options, key, current) => {
+    const row = el("div", "opts");
+    row.appendChild(el("span", "label", label));
+    for (const [value, make, title] of options) {
+      const btn = el("button", value === current ? "on" : "");
+      btn.title = title;
+      btn.appendChild(make());
+      btn.addEventListener("click", () => choose(key, value));
+      row.appendChild(btn);
+    }
+    menu.appendChild(row);
+  };
+  const stroke = (style, width) => () => {
+    const line = el("span", "stroke");
+    line.style.borderTopStyle = style;
+    line.style.borderTopWidth = `${width}px`;
+    return line;
+  };
+  optionRow("Line", [
+    ["solid", stroke("solid", 2), "Solid"],
+    ["dash", stroke("dashed", 2), "Dashed"],
+    ["dot", stroke("dotted", 2), "Dotted"],
+    ["none", () => el("span", null, "\u2205"), "No line - the samples are drawn as dots"],
+  ], "lineStyle", tag.lineStyle || "solid");
+  optionRow("Width", [
+    ["thin", stroke("solid", 1), "Thin"],
+    ["normal", stroke("solid", 2), "Normal"],
+    ["thick", stroke("solid", 3), "Thick"],
+  ], "lineWidth", tag.lineWidth || "normal");
+
+  const points = el("label", "opts check");
+  const box = el("input");
+  box.type = "checkbox";
+  box.checked = tag.points === true;
+  box.addEventListener("change", () => choose("points", box.checked));
+  points.appendChild(box);
+  points.appendChild(el("span", null, "Dots on the samples (trend)"));
+  menu.appendChild(points);
+
+  const symbols = XY_SYMBOLS.map((symbol) =>
+    [symbol, () => el("span", null, symbolGlyph(symbol)), symbol]);
+  optionRow("XY symbol", [
+    [null, () => el("span", null, "auto"), "One per series, by its place among them"],
+  ].concat(symbols), "symbol", tag.symbol || null);
 
   const rect = anchor.getBoundingClientRect();
   placeMenu(menu, rect.left, rect.bottom + 4);
@@ -88,8 +140,15 @@ export function showContextMenu(e, tAtCursor) {
   const mkItem = (label, key, action, disabled) =>
     items.push([label, key, action, disabled]);
 
-  if (isXyMode(tab)) {
-    mkItem("Swap X and Y axes", null, swapXyAxes, !xyPairTags(tab).x);
+  // In XY, which ticked row the others are plotted against - one line each,
+  // the current one ticked off.
+  const set = isXyMode(tab) ? xySeriesTags(tab) : {};
+  if (set.x) {
+    for (const t of [set.x, ...set.ys]) {
+      const current = t === set.x;
+      mkItem(`X axis: ${tagLabel(tab, t)}${current ? " \u2713" : ""}`, null,
+        () => setXyAxis(t.uid), current);
+    }
     items.push(null);
   }
   // tAtCursor is null in the XY plot: there is no time under the pointer
@@ -132,7 +191,8 @@ export function showTagMenu(e, tag) {
     ["Duplicate tag", null, () => duplicateTag(tag.uid)],
     ["Paste tags", "Ctrl+V", pasteFromClipboard],
     null,
-    ["Swap X and Y axes", null, swapXyAxes, !isXyMode(tab) || !xyPairTags(tab).x],
+    ["Use as X axis", null, () => setXyAxis(tag.uid),
+      !isXyMode(tab) || tag.visible === false || xySeriesTags(tab).x === tag],
     null,
     ["Remove tag", null, () => removeTag(tag.uid)],
   ]);

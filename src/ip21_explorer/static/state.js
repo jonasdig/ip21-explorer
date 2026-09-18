@@ -57,6 +57,11 @@ export function makeTag(info) {
     // is emptied again (or, for the unit, the map changes).
     unitEdited: info.unitEdited === true,
     descEdited: info.descEdited === true,
+    // Drawing style, from the colour menu: see LINE_WIDTHS and friends.
+    lineStyle: info.lineStyle || "solid",
+    lineWidth: info.lineWidth || "normal",
+    points: info.points === true,     // dots on the samples in the trend view
+    symbol: info.symbol || null,      // XY point symbol, null = by position
   };
 }
 
@@ -108,6 +113,10 @@ function migrateTab(tab, oldState) {
     tag.map = tag.map ?? null;
     tag.sample = tag.sample || tab.sample || "INT";
     tag.interval = normalizeInterval(tag.interval || tab.interval || "auto");
+    tag.lineStyle = tag.lineStyle || "solid";
+    tag.lineWidth = tag.lineWidth || "normal";
+    tag.points = tag.points === true;
+    tag.symbol = tag.symbol || null;
   }
   if (!tab.axisUid && tab.axisTag) {
     const match = tab.tags.find((t) => t.name === normalizeTagName(tab.axisTag));
