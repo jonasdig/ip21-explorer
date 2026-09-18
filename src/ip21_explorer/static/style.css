@@ -295,8 +295,13 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   background: rgba(28, 32, 40, 0.92);
   border: 1px solid var(--border);
   border-radius: 5px;
-  pointer-events: none;
+  /* Draggable: it takes the pointer over its own small area, which is the
+     point - wherever it sits, it will sometimes cover what matters. */
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
 }
+#color-bar:active { cursor: grabbing; }
 #color-bar .strip { width: 10px; border-radius: 2px; }
 #color-bar .labels {
   display: flex;

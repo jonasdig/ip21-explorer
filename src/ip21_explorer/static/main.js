@@ -22,6 +22,7 @@ import {
 } from "./tags.js";
 import { initToolbar, renderToolbar } from "./toolbar.js";
 import { $ } from "./util.js";
+import { initXyLegend, placeXyLegend } from "./xy-chart.js";
 
 document.addEventListener("pointerdown", (e) => {
   const menu = $("context-menu");
@@ -45,6 +46,7 @@ function init() {
   initTabbar();
   initDialogs();
   initNavigator();
+  initXyLegend();
   ensureFavorites();
   renderAll();
   // A #p=... link adds its plot as a new tab on top of the restored state.
@@ -56,6 +58,7 @@ function init() {
       positionScooters();
     }
     renderNavigator(); // the canvas is sized from its own box, so redraw it
+    placeXyLegend();   // re-clamped, so a smaller window cannot lose it
   });
   resizeObserver.observe($("chart-wrap"));
 

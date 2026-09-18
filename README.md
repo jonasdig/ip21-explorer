@@ -58,7 +58,8 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   The pair is the table's own show column: tick exactly two rows and those two
   are plotted, the upper one on the x axis — tick more or fewer and the plot
   says so instead of guessing. *Swap X and Y axes* sits in the right-click menu
-  of both the plot and a row. The colour bar says which colour is when, and the
+  of both the plot and a row. The colour bar says which colour is when - drag it
+  out of the way, double-click it to put it back - and the
   ramp always spans the loaded window, so a colour means the same moment
   wherever it appears. Drag to zoom the two value axes, double-click to undo
   it; the time window is still chosen with the presets, the time fields and the

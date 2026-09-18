@@ -9,7 +9,7 @@
 import { chartSize, renderChart, scaleRangeFn } from "./chart.js";
 import { showContextMenu } from "./menu.js";
 import { alignOnto, unionTimes } from "./resample.js";
-import { activeTab, rt, saveState } from "./state.js";
+import { activeTab, rt, saveState, state } from "./state.js";
 import { tagLabel } from "./tags.js";
 import { renderToolbar } from "./toolbar.js";
 import { $, el, fmtTime, fmtVal } from "./util.js";
@@ -249,9 +249,68 @@ export function renderXyLegend(r) {
   labels.appendChild(el("span", null, fmtTime(r.start, false)));
   bar.appendChild(labels);
   bar.classList.remove("hidden");
+  placeXyLegend();
 }
 
 export function hideXyLegend() { $("color-bar").classList.add("hidden"); }
+
+// Where the colour bar sits: wherever it was last dropped, as fractions of the
+// plot area so it keeps its place when the window changes size, or the CSS
+// default (bottom left) until it has been moved. Always kept inside the plot.
+export function placeXyLegend() {
+  const bar = $("color-bar");
+  const pos = state.xyLegendPos;
+  if (bar.classList.contains("hidden")) return;
+  if (!pos) {
+    bar.style.left = bar.style.top = bar.style.bottom = "";
+    return;
+  }
+  const wrap = $("chart-wrap").getBoundingClientRect();
+  const maxX = Math.max(0, wrap.width - bar.offsetWidth);
+  const maxY = Math.max(0, wrap.height - bar.offsetHeight);
+  bar.style.left = `${Math.min(maxX, Math.max(0, pos.x * wrap.width))}px`;
+  bar.style.top = `${Math.min(maxY, Math.max(0, pos.y * wrap.height))}px`;
+  bar.style.bottom = "auto";
+}
+
+// Dragged like the scooter boxes, because wherever it starts it will sooner
+// or later sit on top of the points someone wants to look at. Double-click
+// puts it back in its corner.
+export function initXyLegend() {
+  const bar = $("color-bar");
+  bar.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    bar.setPointerCapture(e.pointerId);
+    const wrap = $("chart-wrap").getBoundingClientRect();
+    const box = bar.getBoundingClientRect();
+    const dx = e.clientX - box.left, dy = e.clientY - box.top;
+    const onMove = (ev) => {
+      state.xyLegendPos = {
+        x: (ev.clientX - dx - wrap.left) / wrap.width,
+        y: (ev.clientY - dy - wrap.top) / wrap.height,
+      };
+      placeXyLegend();
+    };
+    const onUp = () => {
+      bar.removeEventListener("pointermove", onMove);
+      bar.removeEventListener("pointerup", onUp);
+      // Store where it actually ended up, after the clamp.
+      const end = bar.getBoundingClientRect();
+      state.xyLegendPos = {
+        x: (end.left - wrap.left) / wrap.width,
+        y: (end.top - wrap.top) / wrap.height,
+      };
+      saveState();
+    };
+    bar.addEventListener("pointermove", onMove);
+    bar.addEventListener("pointerup", onUp);
+  });
+  bar.addEventListener("dblclick", () => {
+    state.xyLegendPos = null;
+    placeXyLegend();
+    saveState();
+  });
+}
 
 export function toggleXyMode() {
   const tab = activeTab();
