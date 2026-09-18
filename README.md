@@ -20,7 +20,9 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   stepped, and min/max, all editable in place while the trends stay visible
   above. The tag name is a field like any other, so a mistyped or neighbouring
   tag (`LIC-2010A` → `LIC-2010B`) is fixed by typing over it, and the blank row
-  at the bottom adds a tag by name without going through search. A row the
+  at the bottom adds a tag by name without going through search. Unit and
+  description are fields too, for when what IP21 reports is wrong; empty one
+  and the historian's value comes back. A row the
   historian had nothing for says so in red, in its own row. `Tab` moves to the
   next setting, `Enter` to the same setting on the next tag, so a whole plot
   can be set up without leaving the keyboard. Rows drag to reorder (or
