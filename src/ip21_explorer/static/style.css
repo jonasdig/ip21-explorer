@@ -173,43 +173,6 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 #custom-range { display: flex; align-items: center; gap: 5px; }
 #custom-range input { width: 178px; padding: 2px 5px; color-scheme: dark; }
 
-/* -- tag pills ----------------------------------------------------------- */
-
-#tagbar {
-  display: flex;
-  gap: 6px;
-  padding: 0 8px 7px 8px;
-  flex-wrap: wrap;
-  min-height: 4px;
-}
-
-.pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 6px 3px 8px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  cursor: pointer;
-  user-select: none;
-}
-.pill.axis { border-color: currentColor; box-shadow: 0 0 0 1px currentColor inset; }
-.pill.hidden-tag .name, .pill.hidden-tag .dot { opacity: 0.3; }
-.pill .dot {
-  width: 11px; height: 11px;
-  border-radius: 50%;
-  flex: none;
-}
-.pill .name { color: var(--text); }
-.pill .range-note { color: var(--muted); font-size: 11px; }
-.pill .gear, .pill .close {
-  border: none; background: none; padding: 0 2px;
-  color: var(--muted); font-size: 12px;
-}
-.pill .gear:hover { color: var(--accent); }
-.pill .close:hover { color: #e57373; }
-
 .popover {
   position: fixed;
   z-index: 40;
@@ -318,6 +281,41 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 #hover-box .row .dot { width: 8px; height: 8px; border-radius: 50%; }
 #hover-box .row .val { margin-left: auto; padding-left: 14px; }
 
+/* The XY plot's time ramp: what a point's colour means. Bottom left, where a
+   scatter is least likely to be, and out of the hover box's corner. */
+#color-bar {
+  position: absolute;
+  left: 72px;              /* clear of the y axis, whatever its labels are */
+  bottom: 14px;
+  z-index: 11;
+  display: flex;
+  gap: 6px;
+  height: 132px;
+  padding: 5px 7px;
+  background: rgba(28, 32, 40, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  pointer-events: none;
+}
+#color-bar .strip { width: 10px; border-radius: 2px; }
+#color-bar .labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The time dot in the XY readout, matching the colour bar rather than a tag. */
+#hover-box .time .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
 /* -- scooters ------------------------------------------------------------ */
 
 .scooter-line {
@@ -359,7 +357,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .scooter-box .row { display: flex; align-items: center; gap: 6px; }
 .scooter-box .row .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .scooter-box .row .val { margin-left: auto; padding-left: 12px; }
-/* Descriptions can be long; the pill tooltip still carries the full text. */
+/* Descriptions can be long; the tooltip still carries the full text. */
 .scooter-box .row .name, #hover-box .row .name {
   max-width: 260px;
   overflow: hidden;
@@ -418,7 +416,16 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#tag-table .cell.name { font-weight: 600; }
+#tag-table .cell.name input { width: 100%; font-weight: 600; }
+/* A row whose last request failed - a name the historian does not know. */
+#tag-table .row.error .cell.name input { color: #e57373; }
+#tag-table .cell.desc.problem { color: #e57373; }
+#tag-table .row:not(.error) .cell.desc.problem { color: var(--muted); }
+
+/* The blank row: an invitation, not a tag, so it carries no row border and
+   its hint sits back until the field is used. */
+#tag-table .newrow { border-bottom: none; }
+#tag-table .newrow .cell.desc { color: var(--muted); font-style: italic; }
 
 /* The global control reset is sized for the toolbar; a row of fifteen columns
    needs every pixel back. */
@@ -481,8 +488,8 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   background: var(--accent);
   pointer-events: none;
 }
-/* The gear on a pill jumps here; a table of forty rows needs the eye led to
-   the right one. */
+/* A tag that was just added can land anywhere in a long table, so the eye is
+   led to it. */
 @keyframes tag-row-flash {
   from { background: rgba(79, 195, 247, 0.28); }
   to { background: transparent; }
@@ -515,13 +522,6 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   border-radius: 3px;
 }
 #tag-table .cell.unit, #tag-table .cell.desc { color: var(--muted); }
-#tag-table .body.empty::before {
-  content: "No tags - search above to add some.";
-  display: block;
-  padding: 10px;
-  color: var(--muted);
-}
-
 /* -- navigator ------------------------------------------------------------ */
 
 /* A fixed-height band below the chart; #chart-wrap has flex: 1 and gives up

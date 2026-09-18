@@ -45,25 +45,24 @@
 
       <button id="label-mode" title="Name tags by tag, description, or both"></button>
 
-      <button id="nav-toggle" title="Show the navigator band under the chart">Nav</button>
+      <button id="xy-mode" title="Plot one tag against another, coloured by time"></button>
 
-      <button id="table-toggle" title="Show a table of every tag's settings">Table</button>
+      <button id="nav-toggle" title="Show the navigator band under the chart">Nav</button>
 
       <button id="add-scooter" title="Add a value cursor (double-click the chart)">+ Scooter</button>
     </div>
-
-    <div id="tagbar"></div>
   </header>
 
   <main id="chart-wrap">
     <div id="chart"></div>
     <div id="hover-box" class="hidden"></div>
     <div id="loading" class="hidden">Loading…</div>
-    <div id="empty-hint">Search for tags above to add them to the plot.</div>
+    <div id="empty-hint">Search for tags above, or type a tag name in the table below.</div>
     <div id="error-box" class="hidden"></div>
+    <div id="color-bar" class="hidden"></div>
   </main>
 
-  <section id="tag-table" class="hidden">
+  <section id="tag-table">
     <div class="resize" title="Drag to resize"></div>
     <div class="head"></div>
     <div class="body"></div>
@@ -109,6 +108,6 @@
   </dialog>
 
   <script src="vendor/uplot.iife.min.js"></script>
-  <script src="app.js"></script>
+  <script type="module" src="main.js"></script>
 </body>
 </html>

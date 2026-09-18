@@ -15,13 +15,19 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
 - **Full-screen plot per tab** — multiple tabs, each with its own tag set;
   per-tab *Link time* membership shares a common time range between the tabs
   that opt in
-- **Tag settings table** under the plot, toggled with the **Table** button: one
-  row per tag with colour, record map, sampling type, interval, stepped, and
-  min/max, all editable in place while the trends stay visible above. `Tab`
-  moves to the next setting, `Enter` to the same setting on the next tag, so a
-  whole plot can be set up without leaving the keyboard. Rows drag to reorder
-  (or `Alt`+`↑`/`↓`), which is also the order the stacked axis gutter and the
-  scooter readouts use, so related tags can be grouped
+- **Tag settings table** under the plot — the one place tags live: one row per
+  tag with the tag name itself, colour, record map, sampling type, interval,
+  stepped, and min/max, all editable in place while the trends stay visible
+  above. The tag name is a field like any other, so a mistyped or neighbouring
+  tag (`LIC-2010A` → `LIC-2010B`) is fixed by typing over it, and the blank row
+  at the bottom adds a tag by name without going through search. A row the
+  historian had nothing for says so in red, in its own row. `Tab` moves to the
+  next setting, `Enter` to the same setting on the next tag, so a whole plot
+  can be set up without leaving the keyboard. Rows drag to reorder (or
+  `Alt`+`↑`/`↓`), which is also the order the stacked axis gutter and the
+  scooter readouts use, so related tags can be grouped. Drag its top edge to
+  trade height with the plot — all the way down leaves just the column
+  headings
 - **Per-tag colour**: tags get distinct colorblind-friendly colors
   automatically; pick another from the palette — or any colour at all — in the
   table's colour cell
@@ -35,13 +41,37 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   only among the name matches, capped by `IP21_DESC_SCAN_MAX` and cached. A
   word on its own that matches no tag name finds nothing, rather than reading
   every description in the historian
+- **Formula rows**: a row whose tag name starts with `=` is arithmetic over
+  other tags rather than a tag of its own — `=[TI-101] - [TI-201]`,
+  `=([FI-104]*2)^0.5`, `=avg([TI-101],[TI-201],[TI-301])` — with `+ - * / ^`,
+  parentheses, numbers, and `abs, sqrt, min, max, avg, ln, log10, exp, round`.
+  References go in brackets (`;MAP` works inside them), because every IP21 tag
+  has a hyphen in it and `=TI-101-TI-201` would otherwise be one name. A
+  reference with no row of its own is fetched quietly in the same request as
+  the rows, so a difference between two tags costs one row, not three.
+  Formulas may refer to other formulas by their description, and a cycle says
+  so by name. Give the row a unit and a short name in the Unit and Description
+  cells and that is what the readouts and the CSV use
+- **XY plot with a time colour**: one tag against another, every point coloured
+  by when it is and joined by a faint trail in time order, so drift shows up as
+  the cloud moving rather than as two trends that have to be compared by eye.
+  The pair is the table's own show column: tick exactly two rows and those two
+  are plotted, the upper one on the x axis — tick more or fewer and the plot
+  says so instead of guessing. *Swap X and Y axes* sits in the right-click menu
+  of both the plot and a row. The colour bar says which colour is when, and the
+  ramp always spans the loaded window, so a colour means the same moment
+  wherever it appears. Drag to zoom the two value axes, double-click to undo
+  it; the time window is still chosen with the presets, the time fields and the
+  navigator
 - **Individual y-scale per tag** (auto or manual min/max); Process
   Explorer-style stacked axis gutter by default (all tags share a few
   gridlines, values stacked in tag colors), with a toggle cycling to
   single-axis and side-by-side axes modes
 - **Time presets** (1h–30d), custom ranges, drag-select and mouse-wheel zoom
   with automatic re-fetch, zoom-back history (Esc), a red **Now** button, and
-  a right-click menu (add scooter, delete scooters, zoom back, reset zoom)
+  a right-click menu (add scooter, delete scooters, zoom back, reset zoom).
+  Reset zoom returns to the window you asked for — the preset you pressed or
+  the dates you typed. Axis labels carry the year once a window spans one
 - **24-hour time fields** in `dd.mm.yyyy hh:mm:ss`, never AM/PM whatever the
   browser's locale, with a calendar popover (Monday first) and arrow keys that
   step whichever part the cursor sits in
@@ -63,7 +93,7 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   decide which map a duplicated tag takes next. Stored server-side in
   `ip21.env` (`IP21_FAVORITE_MAPS`). Map units are looked up only for the map
   actually in use, so opening the dropdown costs one request, not one per map
-- **Copy/paste tags**: right-click a tag for copy, duplicate, paste and remove,
+- **Copy/paste tags**: right-click a tag's row for copy, duplicate, paste and remove,
   or use Ctrl+C / Ctrl+V — tags travel as JSON on the system clipboard, so they
   can be pasted between tabs, windows and machines
 - **Scooters**: any number of draggable value cursors with per-tag readouts;
@@ -169,8 +199,10 @@ git pull && .venv/bin/pip install -e ".[aspen]"
 ```
 
 Then restart the server. Saved plots (`plots/*.json`), your `ip21.env` and the
-per-browser state (open tabs, colors, scooters) are untouched — reload with
-Ctrl+F5 if the browser serves a stale `app.js` from cache.
+per-browser state (open tabs, colors, scooters) are untouched. The server tells
+the browser to check for a newer frontend on every load, so a normal reload
+picks it up — except the first time after upgrading from a build older than
+that, when one Ctrl+F5 clears the copy the browser cached on its own.
 
 ## Architecture
 
@@ -182,13 +214,36 @@ src/ip21_explorer/
     base.py            DataSource protocol, SampleType (INT/AVG/MIN/MAX)
     simulator.py       Deterministic synthetic trends (dev/testing)
     aspen.py           tagreader-backed live source (work machine)
-  static/              Vanilla JS frontend, vendored uPlot (MIT, ~50 KB)
-tests/                 Simulator and API tests (pytest)
+  static/              Vanilla JS frontend as ES modules, vendored uPlot (MIT, ~50 KB)
+    main.js            Entry point: wires the modules together and starts the app
+    state.js           Tabs and tags, their migration, localStorage
+    api.js, data.js    Server API wrappers; fetching and joining trend data
+    chart.js           uPlot chart; axis-gutter.js draws the stacked axis
+    tags.js            Adding/removing tags, units, the tag setter
+    formula.js         "=" expressions: parser and evaluator (imports nothing)
+    resample.js        Reading a series at a time it has no sample of
+    computed.js        Formula rows: references, order, evaluation
+    xy-chart.js        XY plot, time colour ramp and its legend
+    tag-table.js       Settings table (tag-table-keys.js: its keyboard handling)
+    search.js          Tag search         timerange.js   Presets, zoom, live
+    scooters.js        Value cursors      navigator.js   Navigator band
+    tabs.js            Tab strip          toolbar.js     Buttons, shortcuts
+    plots.js           Save/open/import   share.js       Share links
+    menu.js            Context menus      clipboard.js   Copy/paste tags
+    analysis.js        CSV, averages      timefields.js  Time fields, calendar
+    constants.js, util.js
+tests/                 Simulator, API and frontend module tests (pytest)
 ```
 
 The two data sources implement the same small protocol, so the entire app is
 testable against the simulator; `aspen.py` is a thin mapping kept deliberately
 free of logic.
+
+The frontend has no build step, so nothing checks its imports before a browser
+runs them - and a browser only reports a missing import when the code needing
+it runs. `tests/test_static_modules.py` scans the modules as text instead and
+fails on an import that does not resolve, a name used from another module
+without importing it, an unused import, or a module nothing loads.
 
 ## License
 

@@ -20,6 +20,21 @@ from .sources.simulator import SimulatorSource
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+
+class RevalidatingStaticFiles(StaticFiles):
+    """Static files the browser must check with the server before reusing.
+
+    The frontend is a set of ES modules loaded without a build step, so a
+    heuristically cached copy can mix old and new modules and break imports.
+    no-cache still lets the browser keep its copy - it just asks first, and an
+    unchanged file costs a 304.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
 # Candidate aggregate intervals for interval=auto, in seconds. The floor is
 # 4 s because IP21 stores no sample finer than that.
 NICE_INTERVALS = [
@@ -141,6 +156,12 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
         tag_list = list(dict.fromkeys(t for t in tags.split(",") if t))
         if not tag_list:
             raise HTTPException(422, "no tags given")
+        # Formula rows are computed in the browser from tags that were fetched
+        # normally; one arriving here means the frontend leaked an expression,
+        # and failing plainly beats an opaque complaint from the historian.
+        formulas = [t for t in tag_list if t.lstrip().startswith("=")]
+        if formulas:
+            raise HTTPException(422, f"not a tag name: {formulas[0]}")
         start_s = parse_time(start, "start")
         end_s = parse_time(end, "end")
         if end_s <= start_s:
@@ -166,7 +187,9 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
                 source.read, tag_list, start_s, end_s, sample_type, interval_s
             )
         except KeyError as exc:
-            raise HTTPException(404, str(exc))
+            # KeyError's str() is the repr of its argument, quotes and all, and
+            # this message is shown to the user as it stands.
+            raise HTTPException(404, exc.args[0] if exc.args else "unknown tag")
         except ValueError as exc:
             raise HTTPException(422, str(exc))
 
@@ -258,7 +281,7 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
         path.unlink()
         return {"deleted": name}
 
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+    app.mount("/", RevalidatingStaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app
 
 
