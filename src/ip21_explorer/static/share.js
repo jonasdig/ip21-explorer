@@ -1,5 +1,6 @@
 /* Share links that carry a whole plot in the URL fragment. */
 
+import { isFormula } from "./formula.js";
 import { readConfig, tabToConfig } from "./plots.js";
 import { activeTab } from "./state.js";
 import { addTab } from "./tabs.js";
@@ -32,10 +33,13 @@ async function gunzip(bytes) {
 }
 
 // Cached catalog data (maps, descriptions) is dropped: it is re-fetched on
-// demand and would otherwise dominate the link length.
+// demand and would otherwise dominate the link length. A description someone
+// wrote is not catalog data, though - a corrected one, or a formula's name,
+// which other formulas may refer to - so those travel with the link.
 function shareConfig(tab) {
   const config = tabToConfig(tab);
-  config.tags = config.tags.map(({ maps, description, ...rest }) => rest);
+  config.tags = config.tags.map(({ maps, description, ...rest }) =>
+    rest.descEdited || isFormula(rest.name) ? { ...rest, description } : rest);
   return config;
 }
 

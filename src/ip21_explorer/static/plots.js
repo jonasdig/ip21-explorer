@@ -55,6 +55,8 @@ function configToTab(name, config) {
       description: t.description,
       unit: t.unit,
       maps: t.maps,
+      unitEdited: t.unitEdited,
+      descEdited: t.descEdited,
     });
     tag.map = t.map ?? null;
     tag.color = t.color || null;

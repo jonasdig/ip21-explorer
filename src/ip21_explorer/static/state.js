@@ -53,6 +53,10 @@ export function makeTag(info) {
     step: false,              // draw as steps (hold last value) instead of a line
     sample: "INT",
     interval: "auto",
+    // Typed over the historian's, which can be wrong: kept until the field
+    // is emptied again (or, for the unit, the map changes).
+    unitEdited: info.unitEdited === true,
+    descEdited: info.descEdited === true,
   };
 }
 

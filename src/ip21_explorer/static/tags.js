@@ -115,6 +115,8 @@ export function ensureUnits(tab) {
 function applyMapUnit(tag, mapInfo) {
   tag.unit = (mapInfo && mapInfo.unit) || "";
   tag._unitChecked = false;
+  // A unit typed over the old map's does not describe the new one.
+  tag.unitEdited = false;
 }
 
 // The first map not yet plotted for this tag name, or undefined when they are
@@ -313,12 +315,22 @@ export function setTagFields(tab, tag, patch) {
       tag[key] = Number.isFinite(value) ? value : null;
       redraw = true;
     } else if (key === "unit") {
-      // Only a formula row can get here: a real tag's unit comes from the
-      // historian, and its cell is not editable.
-      tag.unit = String(value).trim();
+      const text = String(value).trim();
+      tag.unit = text;
+      if (!isComputed(tag)) {
+        // Typed over the historian's, which can be wrong. Emptying the field
+        // hands it back: the lookup is re-armed and fills it in again.
+        tag.unitEdited = !!text;
+        if (!text) { tag._unitChecked = false; ensureUnit(tab, tag); }
+      }
       redraw = true;
     } else if (key === "description") {
-      tag.description = String(value).trim();
+      const text = String(value).trim();
+      tag.description = text;
+      if (!isComputed(tag)) {
+        tag.descEdited = !!text;
+        if (!text) fetchDescription(tab, tag.name);
+      }
       // The description is a formula's name, and another formula may refer to
       // it, so renaming one can make or break the other.
       if (recompute(tab, rt(tab))) rebuildJoined(tab, rt(tab));
@@ -339,6 +351,8 @@ export function setTagFields(tab, tag, patch) {
         // A formula's are the user's own words and survive an edit.
         tag.description = wasComputed ? tag.description : "";
         tag.unit = wasComputed ? tag.unit : "";
+        tag.descEdited = wasComputed && !!tag.description;
+        tag.unitEdited = wasComputed && !!tag.unit;
         tag.maps = [];
         tag.map = null;
         tag._mapsChecked = tag._unitChecked = tag._descChecked = false;

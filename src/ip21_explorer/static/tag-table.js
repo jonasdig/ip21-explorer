@@ -266,18 +266,18 @@ function updateTagRow(tab, tag, row) {
     c.title = error ? error.text
       : tag.description ? `${tag.name} - ${tag.description}` : tag.name;
   });
-  // A tag's unit and description come from the historian and are read-only; a
-  // formula has neither until the user writes them, so there they are fields.
-  // An error takes the description cell either way - it is the widest column,
-  // and next to the expression that caused it.
+  // Unit and description are fields on every row: the historian's can be
+  // wrong, and a formula has neither until the user writes them. An error
+  // takes the description cell while it lasts - it is the widest column, and
+  // next to the name that caused it.
   const computed = isComputed(tag);
   ownCell(cellOf(row, "unit"), row.dataset.uid, "unit", tag.unit || "",
-    computed && !error, "unit");
+    !error, "unit");
   const desc = cellOf(row, "desc");
   desc.classList.toggle("problem", !!error);
   ownCell(desc, row.dataset.uid, "description",
     error ? error.text : (tag.description || ""),
-    computed && !error, "name this formula");
+    !error, computed ? "name this formula" : "description");
   desc.title = error ? error.text : (tag.description || "");
 
   updateMapCell(tab, tag, cellOf(row, "map"), row.dataset.uid);
