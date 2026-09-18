@@ -1,6 +1,6 @@
 /* Time windows: presets, zoom history, live mode and linked tabs. */
 
-import { chart } from "./chart.js";
+import { previewXRange } from "./chart.js";
 import {
   DATA_MAX_POINTS, HISTORY_MAX, LIVE_MAX_POINTS, MIN_SPAN_S, PRESETS,
 } from "./constants.js";
@@ -56,7 +56,7 @@ export function resetZoom() {
   tab.live = false;
   tab.range = { start: home.start, end: home.end };
   propagateRange(tab);
-  if (chart) chart.setScale("x", { min: home.start, max: home.end });
+  previewXRange(home.start, home.end);
   loadData(tab);
   renderToolbar();
   renderNavigator();
@@ -94,7 +94,7 @@ export function setAbsoluteRange(tab, start, end, debounced, keepLive) {
   if (debounced) tab._wheeling = true;
   tab.range = { start, end };
   propagateRange(tab);
-  if (chart) chart.setScale("x", { min: start, max: end }); // instant visual feedback
+  previewXRange(start, end); // instant visual feedback
   clearTimeout(zoomTimer);
   if (debounced) {
     zoomTimer = setTimeout(() => { tab._wheeling = false; loadData(tab); }, 300);
@@ -196,7 +196,7 @@ export function liveTick() {
   const now = Date.now() / 1000;
   tab.range = { start: now - span, end: now };
   propagateRange(tab);
-  if (chart) chart.setScale("x", { min: now - span, max: now });
+  previewXRange(now - span, now);
   loadData(tab);
   renderToolbar();
 }

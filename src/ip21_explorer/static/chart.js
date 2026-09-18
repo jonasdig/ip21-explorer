@@ -13,6 +13,12 @@ import { activeTab, byUid, reqName, rt } from "./state.js";
 import { tagDisplay } from "./tags.js";
 import { setAbsoluteRange } from "./timerange.js";
 import { $, el, fmtTime, fmtVal, nearestValue, pad2 } from "./util.js";
+import {
+  hideXyLegend, isXyMode, renderXyLegend, xyModeLabel, xyOpts, xyPairTags,
+  xyPairs,
+} from "./xy-chart.js";
+
+const EMPTY_HINT = "Search for tags above, or type a tag name in the table below.";
 
 export let chart = null;           // uPlot instance for the active tab
 
@@ -21,7 +27,9 @@ export function chartSize() {
   return { width: Math.max(200, wrap.clientWidth - 8), height: Math.max(150, wrap.clientHeight - 8) };
 }
 
-function scaleRangeFn(tag) {
+// Shared with the XY plot, where both axes are value axes and the same
+// per-tag Min/Max cells decide their range.
+export function scaleRangeFn(tag) {
   return (u, min, max) => {
     if (tag.min != null && tag.max != null) return [tag.min, tag.max];
     if (min == null || max == null) return [0, 100];
@@ -144,11 +152,12 @@ export function renderChart() {
 
   if (chart) { chart.destroy(); chart = null; }
   forgetScooterEls();
+  hideXyLegend();
   target.innerHTML = "";
   $("hover-box").classList.add("hidden");
 
   if (!tab.tags.length) {
-    $("empty-hint").classList.remove("hidden");
+    showHint(EMPTY_HINT);
     return;
   }
   $("empty-hint").classList.add("hidden");
@@ -158,8 +167,26 @@ export function renderChart() {
   // a fetch loop with no way out. The error box already says what happened.
   if (!r.raw) { loadData(tab); return; }
   if (!r.data) return;
+
+  if (isXyMode(tab)) {
+    // No scooters and no stacked gutter here: both of them are about time.
+    const pair = xyPairTags(tab, r);
+    const pairs = pair && xyPairs(tab, r, pair);
+    if (!pairs) { showHint("XY needs two tags with data in this window."); return; }
+    chart = new uPlot(xyOpts(tab, r, pair, pairs), pairs.data, target);
+    renderXyLegend(r);
+    // The pair can be settled by fallback, and only now is it known.
+    $("xy-mode").textContent = xyModeLabel(tab);
+    return;
+  }
+
   chart = new uPlot(makeOpts(tab, r), r.data, target);
   mountScooters();
+}
+
+function showHint(text) {
+  $("empty-hint").textContent = text;
+  $("empty-hint").classList.remove("hidden");
 }
 
 function onChartReady(u) {
@@ -192,7 +219,9 @@ function onChartReady(u) {
 export function currentXRange() {
   const tab = activeTab();
   const r = rt(tab);
-  if (chart && chart.scales.x.min != null) {
+  // In XY mode the x scale holds process values, not seconds, so the loaded
+  // window is the only honest answer - and the right one for a CSV export.
+  if (chart && !isXyMode(tab) && chart.scales.x.min != null) {
     return { start: chart.scales.x.min, end: chart.scales.x.max };
   }
   return { start: r.start, end: r.end };
@@ -219,6 +248,13 @@ function onCursorMove(u) {
   box.appendChild(el("div", "time", fmtTime(t, true)));
   appendValueRows(box, tab, r, t);
   box.classList.remove("hidden");
+}
+
+// Instant feedback while a window is dragged or zoomed, before the answer
+// lands. Guarded in one place because the XY plot's x scale is a value scale:
+// setting it to epoch seconds there would blank the plot.
+export function previewXRange(min, max) {
+  if (chart && !isXyMode(activeTab())) chart.setScale("x", { min, max });
 }
 
 // Rows of (color dot, tag label, value at time t) for every visible tag.

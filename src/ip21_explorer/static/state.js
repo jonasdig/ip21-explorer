@@ -29,6 +29,9 @@ export function newTab(name) {
     linked: false,            // participates in the shared time range
     axisMode: "stacked",      // "stacked" (PE-style gutter) | "single" | "all"
     axisUid: null,            // tag whose grid (and single axis) is shown
+    plotMode: "time",         // "time" (trend) | "xy" (one tag against another)
+    xUid: null,               // XY: tag on the x axis, null = first with data
+    yUid: null,               // XY: tag on the y axis
     labels: [],               // free-text labels for grouping saved plots
     scooters: [],             // {t: epoch seconds, dy: readout box y-offset px}
     live: true,               // follow "now", refreshing every LIVE_INTERVAL_MS
@@ -81,6 +84,11 @@ function migrateTab(tab, oldState) {
   // as default ("all" is the stored name for side-by-side from now on).
   tab.axisMode = !tab.axisMode || tab.axisMode === "multi" ? "stacked" : tab.axisMode;
   tab.history = [];
+  tab.plotMode = tab.plotMode === "xy" ? "xy" : "time";
+  // A uid that no longer resolves would outlive its tag through a save and
+  // reopen; the pair falls back to the first rows with data anyway.
+  tab.xUid = tab.tags.some((t) => t.uid === tab.xUid) ? tab.xUid : null;
+  tab.yUid = tab.tags.some((t) => t.uid === tab.yUid) ? tab.yUid : null;
   // fromPreset only ever remembered a preset; baseRange also remembers typed
   // dates, so an absolute window is its own home from now on.
   tab.baseRange = tab.baseRange || (tab.range.preset

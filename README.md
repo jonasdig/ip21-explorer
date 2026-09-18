@@ -41,6 +41,25 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   only among the name matches, capped by `IP21_DESC_SCAN_MAX` and cached. A
   word on its own that matches no tag name finds nothing, rather than reading
   every description in the historian
+- **Formula rows**: a row whose tag name starts with `=` is arithmetic over
+  other tags rather than a tag of its own — `=[TI-101] - [TI-201]`,
+  `=([FI-104]*2)^0.5`, `=avg([TI-101],[TI-201],[TI-301])` — with `+ - * / ^`,
+  parentheses, numbers, and `abs, sqrt, min, max, avg, ln, log10, exp, round`.
+  References go in brackets (`;MAP` works inside them), because every IP21 tag
+  has a hyphen in it and `=TI-101-TI-201` would otherwise be one name. A
+  reference with no row of its own is fetched quietly in the same request as
+  the rows, so a difference between two tags costs one row, not three.
+  Formulas may refer to other formulas by their description, and a cycle says
+  so by name. Give the row a unit and a short name in the Unit and Description
+  cells and that is what the readouts and the CSV use
+- **XY plot with a time colour**: one tag against another, every point coloured
+  by when it is and joined by a faint trail in time order, so drift shows up as
+  the cloud moving rather than as two trends that have to be compared by eye.
+  Right-click a row for *Use as X axis* / *Use as Y axis*; the colour bar says
+  which colour is when, and the ramp always spans the loaded window, so a
+  colour means the same moment wherever it appears. Drag to zoom the two value
+  axes, double-click to undo it; the time window is still chosen with the
+  presets, the time fields and the navigator
 - **Individual y-scale per tag** (auto or manual min/max); Process
   Explorer-style stacked axis gutter by default (all tags share a few
   gridlines, values stacked in tag colors), with a toggle cycling to
@@ -198,6 +217,10 @@ src/ip21_explorer/
     api.js, data.js    Server API wrappers; fetching and joining trend data
     chart.js           uPlot chart; axis-gutter.js draws the stacked axis
     tags.js            Adding/removing tags, units, the tag setter
+    formula.js         "=" expressions: parser and evaluator (imports nothing)
+    resample.js        Reading a series at a time it has no sample of
+    computed.js        Formula rows: references, order, evaluation
+    xy-chart.js        XY plot, time colour ramp and its legend
     tag-table.js       Settings table (tag-table-keys.js: its keyboard handling)
     search.js          Tag search         timerange.js   Presets, zoom, live
     scooters.js        Value cursors      navigator.js   Navigator band

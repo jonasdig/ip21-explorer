@@ -13,7 +13,7 @@ import { addTab, renderTabs } from "./tabs.js";
 import { nextColor } from "./tags.js";
 import { $, el, fmtTime, showError } from "./util.js";
 
-const CONFIG_VERSION = 5;
+const CONFIG_VERSION = 6;
 
 // A complete snapshot of a plot: everything needed to recreate it exactly,
 // minus runtime-only identity (uid) and caches (_mapsChecked).
@@ -29,6 +29,11 @@ export function tabToConfig(tab, name) {
     // Index disambiguates which copy of a repeated tag holds the grid.
     axisIndex: tab.tags.findIndex((t) => t.uid === tab.axisUid),
     linked: !!tab.linked,
+    plotMode: tab.plotMode === "xy" ? "xy" : "time",
+    // Indices, like axisIndex: a repeated tag name cannot be told apart by
+    // name, and a formula's "name" is an expression.
+    xIndex: tab.tags.findIndex((t) => t.uid === tab.xUid),
+    yIndex: tab.tags.findIndex((t) => t.uid === tab.yUid),
     live: !!tab.live,
     scooters: (tab.scooters || []).map((sc) => ({ t: sc.t, dy: sc.dy || 0 })),
     range: tab.range.preset
@@ -77,6 +82,9 @@ function configToTab(name, config) {
   delete tab.range.fromPreset;
   tab.labels = Array.isArray(config.labels) ? config.labels.slice() : [];
   tab.linked = config.linked === true;
+  tab.plotMode = config.plotMode === "xy" ? "xy" : "time";
+  tab.xUid = (tab.tags[config.xIndex] || {}).uid || null;
+  tab.yUid = (tab.tags[config.yIndex] || {}).uid || null;
   tab.live = config.live === true;
   tab.scooters = Array.isArray(config.scooters)
     ? config.scooters.filter((sc) => sc && typeof sc.t === "number")

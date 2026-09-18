@@ -2,6 +2,7 @@
 
 import { appendValueRows, chart, currentXRange } from "./chart.js";
 import { activeTab, rt, saveState } from "./state.js";
+import { isXyMode } from "./xy-chart.js";
 import { el, fmtTime } from "./util.js";
 
 let scooterEls = [];        // [{line, box}] for the active tab
@@ -95,7 +96,8 @@ function beginBoxDrag(e, scooter, index) {
 
 export function positionScooters() {
   const tab = activeTab();
-  if (!chart || !tab) return;
+  // A scooter is a time cursor; the XY plot's x axis holds process values.
+  if (!chart || !tab || isXyMode(tab)) return;
   tab.scooters.forEach((_, i) => positionScooter(i));
 }
 

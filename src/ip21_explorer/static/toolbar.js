@@ -11,6 +11,7 @@ import { isEditingContext, onTagTableKey } from "./tag-table-keys.js";
 import { beginTableResize } from "./tag-table.js";
 import { ensureDescriptions, renderTags } from "./tags.js";
 import { initTimeFields } from "./timefields.js";
+import { isXyMode, toggleXyMode, xyModeLabel } from "./xy-chart.js";
 import {
   jumpToNow, liveDisabledReason, liveTick, popHistory, resolveRange,
   setBaseRange, setPreset, toggleLive,
@@ -43,6 +44,13 @@ export function renderToolbar() {
 
   const axisModeLabels = { stacked: "Axes: stacked", single: "Axes: one", all: "Axes: all" };
   $("axis-mode").textContent = axisModeLabels[tab.axisMode] || axisModeLabels.stacked;
+  // The XY plot has exactly two axes and no scooters: both buttons would be
+  // controls for something that is not on screen.
+  const xy = isXyMode(tab);
+  $("xy-mode").textContent = xyModeLabel(tab);
+  $("xy-mode").classList.toggle("active", xy);
+  $("axis-mode").classList.toggle("hidden", xy);
+  $("add-scooter").classList.toggle("hidden", xy);
   $("label-mode").textContent = (LABEL_MODES[state.labelMode] || LABEL_MODES.tag).label;
   $("nav-toggle").classList.toggle("active", !!state.navigator);
   $("link-ranges-cb").checked = !!tab.linked;
@@ -88,6 +96,7 @@ export function initToolbar() {
     addScooterAt((cur.start + cur.end) / 2);
   });
 
+  $("xy-mode").addEventListener("click", toggleXyMode);
   $("tag-table").addEventListener("keydown", onTagTableKey);
   $("tag-table").querySelector(".resize")
     .addEventListener("pointerdown", beginTableResize);

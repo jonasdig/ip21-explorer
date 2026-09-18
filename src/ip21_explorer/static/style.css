@@ -281,6 +281,41 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 #hover-box .row .dot { width: 8px; height: 8px; border-radius: 50%; }
 #hover-box .row .val { margin-left: auto; padding-left: 14px; }
 
+/* The XY plot's time ramp: what a point's colour means. Bottom left, where a
+   scatter is least likely to be, and out of the hover box's corner. */
+#color-bar {
+  position: absolute;
+  left: 72px;              /* clear of the y axis, whatever its labels are */
+  bottom: 14px;
+  z-index: 11;
+  display: flex;
+  gap: 6px;
+  height: 132px;
+  padding: 5px 7px;
+  background: rgba(28, 32, 40, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  pointer-events: none;
+}
+#color-bar .strip { width: 10px; border-radius: 2px; }
+#color-bar .labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The time dot in the XY readout, matching the colour bar rather than a tag. */
+#hover-box .time .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
 /* -- scooters ------------------------------------------------------------ */
 
 .scooter-line {

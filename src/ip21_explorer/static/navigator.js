@@ -1,6 +1,6 @@
 /* The navigator band under the chart. */
 
-import { chart } from "./chart.js";
+import { previewXRange } from "./chart.js";
 import { isComputed } from "./computed.js";
 import { MIN_SPAN_S } from "./constants.js";
 import { activeTab, byUid, reqName, rt, saveState, state } from "./state.js";
@@ -220,7 +220,7 @@ function onNavPointerMove(e) {
   // request however long it took - the wheel-zoom debounce would fire mid-drag
   // on anything slower than 300 ms.
   navDrag.preview = { start, end };
-  if (chart) chart.setScale("x", { min: start, max: end });
+  previewXRange(start, end);
   renderNavigator(navDrag.preview);
 }
 
