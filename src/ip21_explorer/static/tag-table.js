@@ -165,6 +165,15 @@ function buildTagRow(uid) {
   name.addEventListener("change", () =>
     setTagField(activeTab(), tagOf(), "name", name.value));
   cellOf(row, "name").appendChild(mark(name, "name"));
+  // Into the block editor: a formula opens as its blocks, a plain tag starts
+  // a new formula with itself as the first block.
+  const fx = el("button", "fx", "\u0192");
+  fx.addEventListener("click", () => {
+    const tag = tagOf();
+    if (isComputed(tag)) openFormulaEditor(activeTab(), tag);
+    else openFormulaEditor(activeTab(), null, tag);
+  });
+  cellOf(row, "name").appendChild(fx);
 
   const sample = el("select");
   sample.title = "Sampling type (on a formula row: for the tags it fetches itself)";
@@ -262,6 +271,8 @@ function updateTagRow(tab, tag, row) {
   // only show a missing trace as absence, which reads as "no data yet".
   const error = tag._error;
   row.classList.toggle("error", !!(error && error.hard));
+  cellOf(row, "name").querySelector(".fx").title = isComputed(tag)
+    ? "Edit this formula as blocks" : "New formula from this tag, as blocks";
   set("name", (c) => {
     c.value = tag.name;
     c.title = error ? error.text
@@ -444,7 +455,7 @@ function buildNewRow() {
   const fx = el("button", "fx", "\u0192");
   fx.title = "Build a formula from blocks";
   fx.addEventListener("click", () => openFormulaEditor(activeTab(), null));
-  cellOf(row, "color").appendChild(fx);
+  cellOf(row, "name").appendChild(fx);
   return row;
 }
 

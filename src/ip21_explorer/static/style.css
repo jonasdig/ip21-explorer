@@ -853,8 +853,11 @@ dialog h3 { margin: 0 0 10px 0; }
 }
 #formula-editor .dialog-buttons { margin-top: 0; }
 
-/* The blank row's way into the block editor. */
-#tag-table .newrow .cell.color .fx {
+/* Every row's way into the block editor, right after the name. */
+#tag-table .cell.name { display: flex; align-items: center; gap: 2px; }
+#tag-table .cell.name input { flex: 1; min-width: 0; }
+#tag-table .cell.name .fx {
+  flex: none;
   border: none;
   background: none;
   padding: 0;
@@ -862,4 +865,4 @@ dialog h3 { margin: 0 0 10px 0; }
   font-style: italic;
   font-size: 14px;
 }
-#tag-table .newrow .cell.color .fx:hover { color: var(--accent); }
+#tag-table .cell.name .fx:hover { color: var(--accent); }

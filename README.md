@@ -56,7 +56,7 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   cells and that is what the readouts and the CSV use
 - **Formula blocks**: the same formulas, built by dragging blocks - tags,
   numbers, the arithmetic and every function - onto a canvas and wiring them
-  together. Open it with the *ƒ* on the blank row, or *Edit visually* /
+  together. Open it with the *ƒ* after any row's tag name (the blank row's starts from scratch), or *Edit visually* /
   *New formula from this tag* in a row's right-click menu. Tags can be
   searched for right there, including ones that are not on the plot - their
   data is fetched for the preview straight away; `+`, `×`, `min`, `max` and
