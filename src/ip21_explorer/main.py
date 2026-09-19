@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 
+from .calc import CachedSource, auto_interval, compute
+from .calc.engine import NICE_INTERVALS  # noqa: F401 - part of this module's API
 from .config import Settings, load_env_file, write_env_setting
 from .sources.base import DataSource, SampleType
 from .sources.simulator import SimulatorSource
@@ -39,14 +41,6 @@ class RevalidatingStaticFiles(StaticFiles):
         response.headers["Cache-Control"] = "no-cache"
         return response
 
-# Candidate aggregate intervals for interval=auto, in seconds. The floor is
-# 4 s because IP21 stores no sample finer than that.
-NICE_INTERVALS = [
-    4, 8, 15, 30,
-    60, 120, 300, 600, 900, 1800,
-    3600, 7200, 14400, 21600, 43200, 86400,
-]
-
 
 def parse_time(value: str, name: str) -> float:
     """Accept epoch seconds (numeric) or ISO 8601 timestamps."""
@@ -63,15 +57,6 @@ def parse_time(value: str, name: str) -> float:
         raise HTTPException(422, f"invalid {name!r} timestamp: {value}")
 
 
-def auto_interval(span_s: float, points: int) -> float:
-    """Pick a nice interval giving roughly `points` samples over the span."""
-    target = span_s / max(1, points)
-    for candidate in NICE_INTERVALS:
-        if candidate >= target:
-            return float(candidate)
-    return float(NICE_INTERVALS[-1])
-
-
 def _jsonable(values) -> List[Optional[float]]:
     """Round to trim JSON size and convert NaN/inf to null."""
     return [
@@ -84,6 +69,10 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
     settings = settings or Settings.from_env()
     if source is None:
         source = make_source(settings)
+    # Every read goes through a short memory, so the formulas computed right
+    # after a plot's own fetch - and the block editor's previews - find the
+    # tags already read instead of asking the historian again.
+    source = CachedSource(source)
 
     app = FastAPI(title="IP21 Explorer")
 
@@ -213,6 +202,33 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
                 for tag, (t_arr, v_arr) in series.items()
             },
         }
+
+    @app.post("/api/compute")
+    async def compute_formulas(body: Dict[str, Any] = Body(...)):
+        """Formula rows: {start, end, points, items} -> a series or an error per
+        item. One formula failing never takes the others down with it."""
+        start_s = parse_time(str(body.get("start", "")), "start")
+        end_s = parse_time(str(body.get("end", "")), "end")
+        if end_s <= start_s:
+            raise HTTPException(422, "end must be after start")
+        items = body.get("items") or []
+        if not isinstance(items, list) or not all(isinstance(i, dict) and "id" in i for i in items):
+            raise HTTPException(422, "items must be a list of {id, expr, refs}")
+        points = int(body.get("points") or 1500)
+        points = max(10, min(20000, points))
+
+        began = time.monotonic()
+        results = await asyncio.to_thread(compute, source, items, start_s, end_s, points)
+        logger.info("computed %d formula%s in %.1f s", len(items),
+                    "" if len(items) == 1 else "s", time.monotonic() - began)
+        series, errors = {}, {}
+        for item_id, result in results.items():
+            if len(result.t):
+                series[item_id] = {"t": _jsonable(result.t), "v": _jsonable(result.v),
+                                   "step": result.step}
+            if result.error:
+                errors[item_id] = {"text": result.error[0], "hard": result.error[1]}
+        return {"series": series, "errors": errors}
 
     # -- favourite record maps ---------------------------------------------
 

@@ -307,3 +307,52 @@ def test_unchanged_static_file_is_a_304(client):
     again = client.get("/style.css", headers={"if-none-match": first.headers["etag"]})
     assert again.status_code == 304
     assert again.headers["cache-control"] == "no-cache"
+
+
+# -- formulas computed on the server ------------------------------------------
+
+def _formula(item_id, expr, **refs):
+    return {"id": item_id, "expr": expr, "refs": refs}
+
+
+def test_compute_formulas(client):
+    tag = {"tag": "TI-101", "sample": "INT", "interval": "300", "step": False}
+    body = {"start": START, "end": END, "points": 1500, "items": [
+        _formula("ok", "=[TI-101] * 2", **{"TI-101": tag}),
+        _formula("bad", "=[XX-999] + 1", **{"XX-999": {**tag, "tag": "XX-999"}}),
+        _formula("typo", "=[TI-101] +", **{"TI-101": tag}),
+    ]}
+    r = client.post("/api/compute", json=body)
+    assert r.status_code == 200
+    out = r.json()
+    ok = out["series"]["ok"]
+    assert len(ok["t"]) == 289 and ok["step"] is False
+    raw = client.get("/api/data", params={"tags": "TI-101", "start": START, "end": END,
+                                          "interval": "300"}).json()["series"]["TI-101"]
+    assert ok["v"][:5] == pytest.approx([2 * v for v in raw["v"][:5]], abs=1e-5)
+    assert "ok" not in out["errors"]
+    assert out["errors"]["bad"]["hard"] and "XX-999" in out["errors"]["bad"]["text"]
+    assert out["errors"]["typo"] == {"text": "the expression ends too early", "hard": True}
+
+
+def test_compute_reuses_what_data_just_read():
+    class Counting(SimulatorSource):
+        calls = 0
+
+        def read(self, *args, **kwargs):
+            Counting.calls += 1
+            return super().read(*args, **kwargs)
+
+    local = TestClient(create_app(source=Counting()))
+    params = {"tags": "PI-103", "start": START, "end": END, "interval": "600"}
+    assert local.get("/api/data", params=params).status_code == 200
+    body = {"start": START, "end": END, "items": [_formula(
+        "f", "=[PI-103] / 10",
+        **{"PI-103": {"tag": "PI-103", "sample": "INT", "interval": "600"}})]}
+    assert local.post("/api/compute", json=body).status_code == 200
+    assert Counting.calls == 1
+
+
+def test_compute_rejects_a_bad_window(client):
+    r = client.post("/api/compute", json={"start": END, "end": START, "items": []})
+    assert r.status_code == 422
