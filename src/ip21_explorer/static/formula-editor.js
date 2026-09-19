@@ -10,7 +10,8 @@ import { apiSearchTags } from "./api.js";
 import { xAxisValues } from "./chart.js";
 import { isComputed, previewFormulas } from "./computed.js";
 import { MIN_QUERY_LEN, SEARCH_DEBOUNCE_MS } from "./constants.js";
-import { FUNCTION_NAMES, PERIODS } from "./formula.js";
+import { FUNCTION_NAMES, PERIODS, RESOLUTIONS } from "./formula.js";
+import { BLOCK_HELP, helpKey } from "./formula-help.js";
 import {
   emptyGraph, graphFromText, inputPorts, isVariadic, layoutGraph,
   newNode, nodeLabel, textFromGraph,
@@ -53,7 +54,7 @@ export function openFormulaEditor(tab, tag, seed) {
     if (!seed) Object.assign(graph.nodes[0], { x: 560, y: 160 });
   }
   session = { tab, tag: tag && isComputed(tag) ? tag : null, graph, pan: { x: 0, y: 0 },
-    selected: null, preview: null, previewId: "out",
+    selected: null, preview: null, previewId: "out", helpFor: null,
     // The preview's request to the server, replaced by each newer one.
     abort: null, previewSeq: 0 };
   shell.title.textContent = session.tag
@@ -144,13 +145,29 @@ function buildShell() {
   dialog.addEventListener("keydown", (e) => {
     // Escape is Cancel. Handled here rather than left to the browser, which
     // may hold a dialog's own Escape back when it was opened from script.
-    if (e.key === "Escape") { e.preventDefault(); dialog.close(); return; }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      // An open help box goes first; the next Escape closes the editor.
+      if (session.helpFor) { session.helpFor = null; render(); return; }
+      dialog.close();
+      return;
+    }
     const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName);
     if ((e.key === "Delete" || e.key === "Backspace") && !typing && session.selected) {
       e.preventDefault();
       removeSelected();
     }
   });
+  // A click anywhere but in the help box, or on the "?" that opened it,
+  // puts the help away.
+  dialog.addEventListener("pointerdown", (e) => {
+    if (!session || !session.helpFor) return;
+    if (e.target.closest(".fe-help") || e.target.closest(".head .help")) return;
+    session.helpFor = null;
+    const open = shell.nodes.querySelector(".fe-help");
+    if (open) open.remove();
+    shell.nodes.querySelectorAll(".fe-node.helping").forEach((b) => b.classList.remove("helping"));
+  }, true);
   dialog.addEventListener("close", () => {
     // The event is queued, and can arrive after the editor was opened again:
     // it must not tear down the new session's preview.
@@ -239,6 +256,8 @@ function fillRows() {
 // A palette entry: click to drop the block mid-canvas, or drag it to a spot.
 function paletteItem(label, fields, cls) {
   const item = el("div", `fe-item ${cls}`, label);
+  const help = BLOCK_HELP[helpKey(fields)];
+  if (help) item.title = help.short + (help.long ? " - its ? on the canvas says more" : "");
   item.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     const ghost = el("div", "fe-ghost", label);
@@ -288,6 +307,7 @@ function render() {
   shell.world.style.transform = `translate(${session.pan.x}px, ${session.pan.y}px)`;
   shell.nodes.innerHTML = "";
   for (const node of graph.nodes) shell.nodes.appendChild(buildNode(node));
+  placeHelp();
   renderWires();
   // A change on the canvas wins over whatever sits in the text field, even
   // if it still has the focus from the last time it was typed in.
@@ -296,8 +316,9 @@ function render() {
 
 function buildNode(node) {
   const selected = session.selected && session.selected.node === node.id;
+  const helping = session.helpFor === node.id;
   const box = el("div", `fe-node ${node.type}` + (selected ? " selected" : "")
-    + (session.previewId === node.id ? " previewing" : ""));
+    + (session.previewId === node.id ? " previewing" : "") + (helping ? " helping" : ""));
   box.dataset.id = node.id;
   box.style.left = `${node.x}px`;
   box.style.top = `${node.y}px`;
@@ -305,6 +326,19 @@ function buildNode(node) {
   const head = el("div", "head");
   head.appendChild(el("span", "label", node.type === "tag" ? "Tag"
     : node.type === "num" ? "Number" : nodeLabel(node)));
+  // A "?" only where a line of tooltip is not enough.
+  const help = BLOCK_HELP[helpKey(node)];
+  if (help && help.long) {
+    const ask = el("button", "help", "?");
+    ask.title = "What this block does";
+    ask.addEventListener("pointerdown", (e) => e.stopPropagation());
+    ask.addEventListener("click", (e) => {
+      e.stopPropagation();
+      session.helpFor = helping ? null : node.id;
+      render();
+    });
+    head.appendChild(ask);
+  }
   const eye = el("button", "eye", "◉");
   eye.title = node.type === "out" ? "Preview the result"
     : session.previewId === node.id ? "Back to previewing the result" : "Preview this block";
@@ -372,6 +406,23 @@ function buildNode(node) {
       period.addEventListener("pointerdown", (e) => e.stopPropagation());
       period.addEventListener("change", () => { node.period = period.value; refreshText(); });
       content.appendChild(period);
+      // How finely what goes in is read. Matters most for a comparison: at
+      // 1 h, an hour is counted whole or not at all.
+      const resolution = el("select", "period");
+      for (const name of RESOLUTIONS) {
+        const opt = el("option", null, name === "auto" ? "auto resolution" : `read per ${name}`);
+        opt.value = name;
+        resolution.appendChild(opt);
+      }
+      resolution.value = node.resolution || "auto";
+      resolution.title = "How finely the input is read, as averages over this interval";
+      resolution.addEventListener("pointerdown", (e) => e.stopPropagation());
+      resolution.addEventListener("change", () => {
+        if (resolution.value === "auto") delete node.resolution;
+        else node.resolution = resolution.value;
+        refreshText();
+      });
+      content.appendChild(resolution);
     }
   }
   content.appendChild(el("span", "val"));
@@ -385,8 +436,30 @@ function buildNode(node) {
   }
   box.appendChild(main);
 
+  if (helping && help && help.long) {
+    const card = el("div", "fe-help");
+    card.appendChild(el("div", "title", help.short));
+    for (const text of help.long) card.appendChild(el("p", null, text));
+    card.addEventListener("pointerdown", (e) => e.stopPropagation());
+    box.appendChild(card);
+  }
+
   box.addEventListener("pointerdown", (e) => beginMove(e, node, box));
   return box;
+}
+
+// A help box hangs under its block, or over it when the canvas has more room
+// there; whatever still does not fit scrolls inside the box.
+function placeHelp() {
+  const card = shell.nodes.querySelector(".fe-help");
+  if (!card) return;
+  const area = shell.canvas.getBoundingClientRect();
+  const block = card.parentElement.getBoundingClientRect();
+  const below = area.bottom - block.bottom - 12;
+  const above = block.top - area.top - 12;
+  const up = below < card.offsetHeight && above > below;
+  card.classList.toggle("above", up);
+  card.style.maxHeight = `${Math.max(120, up ? above : below)}px`;
 }
 
 // Where a port sits in world coordinates - the space the SVG draws in.

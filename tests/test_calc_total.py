@@ -29,7 +29,11 @@ class Synthetic:
         self.reads.append((sample_type, interval_s, start, end))
         n = int(round((end - start) / interval_s))
         t = start + np.arange(n) * interval_s
-        return {tag: (t, self.signal(t + interval_s / 2)) for tag in tags}
+        # The mean of a few points across each bucket, standing in for the
+        # historian's time-weighted average.
+        sub = (np.arange(12) + 0.5) / 12 * interval_s
+        values = self.signal((t[:, None] + sub[None, :]).ravel()).reshape(n, 12).mean(axis=1)
+        return {tag: (t, values) for tag in tags}
 
 
 def run(source, expr, start, end, now=None):
@@ -112,3 +116,34 @@ def test_total_window_interval_choice():
     inner, bounds = total_window(window, "day", OSLO, now=local(2027, 1, 1))
     # 19 days, ending on a midnight: 20 boundaries.
     assert inner.interval_s == 60 and inner.sample == "AVG" and len(bounds) == 20
+
+
+def test_resolution_is_the_formulas_choice():
+    # On for the first 30 minutes of every hour.
+    def half_hours(t):
+        minute = (t % 3600) / 60
+        return np.where(minute < 30, 50.0, 0.0)
+
+    fine = Synthetic(half_hours)
+    by_minute = run(fine, "=total([FI-1] > 5, day, 1min)", local(2026, 9, 1), local(2026, 9, 2))
+    assert by_start(by_minute)[local(2026, 9, 1)] == pytest.approx(12.0)
+    assert fine.reads[0][1] == 60
+
+    coarse = Synthetic(half_hours)
+    by_hour = run(coarse, "=total([FI-1] > 5, day, 1h)", local(2026, 9, 1), local(2026, 9, 2))
+    # Hourly averages are 25: every hour counts as a whole one above 5.
+    assert by_start(by_hour)[local(2026, 9, 1)] == pytest.approx(24.0)
+    assert coarse.reads[0][1] == 3600
+
+    # For a quantity the resolution makes no difference.
+    flow = run(Synthetic(half_hours), "=total([FI-1], day, 1h)", local(2026, 9, 1), local(2026, 9, 2))
+    assert by_start(flow)[local(2026, 9, 1)] == pytest.approx(600.0)
+
+
+def test_a_resolution_too_fine_for_the_window_is_coarsened():
+    window = Window(local(2021, 1, 1), local(2026, 1, 1))
+    inner, _ = total_window(window, "day", OSLO, now=local(2027, 1, 1), resolution="1min")
+    assert inner.interval_s == 3600
+    inner, _ = total_window(Window(local(2026, 1, 1), local(2026, 1, 3)), "day", OSLO,
+                            now=local(2027, 1, 1), resolution="15min")
+    assert inner.interval_s == 900

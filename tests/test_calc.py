@@ -43,6 +43,12 @@ def test_parser_precedence():
     assert node["op"] == "+" and node["a"]["b"]["op"] == "^"
 
 
+def test_total_keeps_its_period_and_resolution():
+    node = parse_formula("=total([A], day, 15min)").node
+    assert (node["period"], node["resolution"]) == ("day", "15min")
+    assert "resolution" not in parse_formula("=total([A], day, auto)").node
+
+
 def test_bare_names_are_remembered_for_the_subtraction_hint():
     assert parse_formula("=TI-101-TI-201").bare == {"TI-101-TI-201"}
 

@@ -28,6 +28,11 @@ export function takesMany(name) { return MULTI.has(name); }
 // becomes hours per day. The period is a word, not a tag.
 export const PERIODS = ["hour", "day", "week", "month", "year"];
 const PERIOD_LIST = "hour, day, week, month or year";
+// An optional third word: how finely the expression inside is read, as
+// averages over that interval. Every one divides an hour. auto (the same as
+// leaving it out) lets the server pick the finest a long window allows.
+export const RESOLUTIONS = ["1min", "5min", "15min", "1h", "auto"];
+const RESOLUTION_LIST = "1min, 5min, 15min, 1h or auto";
 
 // Comparisons give 1 or 0, and bind loosest of all: [A] + 1 > [B] compares
 // the sum. Two in a row is not a thing a formula needs, so it is an error.
@@ -162,7 +167,9 @@ function parsePrimary(p) {
   throw new Error(`unexpected "${token.v}" at ${token.i + 1}`);
 }
 
-// After "total(": the expression, a comma, and a period word.
+// After "total(": the expression, a comma, a period word, and optionally a
+// comma and a resolution - which the tokenizer has split into a number and a
+// name ("1min"), so it is read back as the text of its tokens.
 function parseTotal(p) {
   const arg = parseCompare(p);
   const comma = peek(p);
@@ -174,8 +181,18 @@ function parseTotal(p) {
     throw new Error(`${said} is not a period - use ${PERIOD_LIST}`);
   }
   p.i += 1;
+  const node = { k: "fn", name: "total", args: [arg], period: word.v };
+  if (peek(p) && peek(p).t === ",") {
+    p.i += 1;
+    let said = "";
+    while (peek(p) && peek(p).t !== ")" && peek(p).t !== ",") said += p.tokens[p.i++].v;
+    if (!RESOLUTIONS.includes(said)) {
+      throw new Error(`${said ? `"${said}"` : "nothing"} is not a resolution - use ${RESOLUTION_LIST}`);
+    }
+    if (said !== "auto") node.resolution = said;
+  }
   eat(p, ")");
-  return { k: "fn", name: "total", args: [arg], period: word.v };
+  return node;
 }
 
 function collectRefs(node, out, bare) {

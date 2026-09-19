@@ -106,6 +106,24 @@
     "A",
     "B"
    ]
+  },
+  {
+   "text": "=total([FI-104], day, 1h)",
+   "refs": [
+    "FI-104"
+   ]
+  },
+  {
+   "text": "=total([FI-104] > 5, week, 1min)",
+   "refs": [
+    "FI-104"
+   ]
+  },
+  {
+   "text": "=total([FI-104], day, auto)",
+   "refs": [
+    "FI-104"
+   ]
   }
  ],
  "error": [
@@ -167,11 +185,19 @@
   },
   {
    "text": "=total([A], day, 2)",
-   "error": "expected \")\" at 15"
+   "error": "\"2\" is not a resolution - use 1min, 5min, 15min, 1h or auto"
   },
   {
    "text": "=[A] =< 2",
    "error": "unexpected \"=\" at 5"
+  },
+  {
+   "text": "=total([A], day, 2h)",
+   "error": "\"2h\" is not a resolution - use 1min, 5min, 15min, 1h or auto"
+  },
+  {
+   "text": "=total([A], day, )",
+   "error": "nothing is not a resolution - use 1min, 5min, 15min, 1h or auto"
   }
  ]
 }

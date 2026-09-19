@@ -67,11 +67,16 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   read as time-weighted averages (AVG), at 1 min for windows up to about a
   month and coarser beyond (at most 50 000 points per tag), over whole
   periods — a day that started before the window counts in full, and today's
-  total is so far. A rate per second needs `* 3600`
+  total is so far. A rate per second needs `* 3600`. A third word picks the
+  resolution instead: `total([FI-104] > 5, day, 1min)` (`1min`, `5min`,
+  `15min`, `1h`); it matters most for a comparison, where at `1h` an hour
+  counts whole or not at all
 - **Formula blocks**: the same formulas, built by dragging blocks - tags,
   numbers, the arithmetic, comparisons and every function (a *total* block
-  picks its period from a list) - onto a canvas and wiring them
-  together, from an output to an input or the other way. Open it with the *ƒ*
+  picks its period and resolution from lists) - onto a canvas and wiring them
+  together, from an output to an input or the other way. Hovering a block in
+  the palette says what it does; blocks that need more than a line have a
+  *?* that opens a fuller explanation. Open it with the *ƒ*
   after any row's tag name (the blank row's starts from scratch), or *Edit visually* /
   *New formula from this tag* in a row's right-click menu. Tags can be
   searched for right there, including ones that are not on the plot - the

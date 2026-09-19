@@ -27,7 +27,7 @@ import numpy as np
 from ..sources.base import DataSource, SampleType
 from .align import align_onto, union_times
 from .evaluate import evaluate
-from .parser import FormulaError, Node, Parsed, parse_formula, resolve_hint
+from .parser import RESOLUTIONS, FormulaError, Node, Parsed, parse_formula, resolve_hint
 from .periods import period_bounds
 
 logger = logging.getLogger("ip21_explorer")
@@ -44,9 +44,10 @@ NICE_INTERVALS = [
 READ_GROUPS_AT_ONCE = 4
 
 # What a time function reads its tags with: time-weighted averages, whose sum
-# times the bucket length is exactly the quantity that passed, at the finest
-# of these intervals that keeps a tag under TOTAL_MAX_POINTS over the window.
-# Every one divides an hour, so buckets never straddle a period boundary.
+# times the bucket length is exactly the quantity that passed, at the interval
+# the formula asks for - or, by default or when that would be more than
+# TOTAL_MAX_POINTS over the window, the finest of these that is not. Every
+# one divides an hour, so buckets never straddle a period boundary.
 TOTAL_SAMPLE = "AVG"
 TOTAL_INTERVALS = [60, 300, 600, 900, 1800, 3600]
 TOTAL_MAX_POINTS = 50_000
@@ -81,15 +82,19 @@ class Window:
     interval_s: Optional[float] = None
 
 
-def total_window(window: Window, period: str, zone: ZoneInfo,
-                 now: float) -> Tuple[Window, List[float]]:
+def total_window(window: Window, period: str, zone: ZoneInfo, now: float,
+                 resolution: Optional[str] = None) -> Tuple[Window, List[float]]:
     """The window a total() reads over - stretched to whole periods, but not
     past now, where there is nothing to read - and its period boundaries."""
     bounds = period_bounds(window.start, window.end, period, zone)
     end = min(bounds[-1], max(window.end, now))
     bounds = [b for b in bounds if b < end] + [end]
     span = end - bounds[0]
-    interval_s = next((float(i) for i in TOTAL_INTERVALS if span / i <= TOTAL_MAX_POINTS),
+    wanted = RESOLUTIONS.get(resolution or "auto") or 0.0
+    # Asked for, but so fine over so long a window that the historian should
+    # not be asked it: the finest that is not too many points instead.
+    candidates = [i for i in TOTAL_INTERVALS if i >= wanted]
+    interval_s = next((float(i) for i in candidates if span / i <= TOTAL_MAX_POINTS),
                       float(TOTAL_INTERVALS[-1]))
     return Window(bounds[0], end, TOTAL_SAMPLE, interval_s), bounds
 
@@ -183,7 +188,8 @@ class _Computation:
             yield from self._needs_node(node["a"], refs, window, seen)
             yield from self._needs_node(node["b"], refs, window, seen)
         elif kind == "fn" and node["name"] == "total":
-            inner, _ = total_window(window, node["period"], self.zone, self.now)
+            inner, _ = total_window(window, node["period"], self.zone, self.now,
+                                    node.get("resolution"))
             yield from self._needs_node(node["args"][0], refs, inner, seen)
         elif kind == "fn":
             for arg in node["args"]:
@@ -282,7 +288,8 @@ class _Computation:
 
     def _total(self, node: Node, refs: Dict[str, Any], parsed: Parsed,
                window: Window) -> Tuple[np.ndarray, np.ndarray, bool]:
-        inner, bounds = total_window(window, node["period"], self.zone, self.now)
+        inner, bounds = total_window(window, node["period"], self.zone, self.now,
+                                     node.get("resolution"))
         t, v, _ = self._series(node["args"][0], refs, parsed, inner)
         edges, sums = sum_periods(t, v, inner.interval_s, bounds)
         return edges, sums, True

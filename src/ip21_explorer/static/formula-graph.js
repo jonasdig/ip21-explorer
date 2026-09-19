@@ -5,10 +5,10 @@
    downstream - fetching, computing, saving - knows blocks exist. Pure: it
    imports only the parser. */
 
-import { PERIODS, parseFormula, takesMany } from "./formula.js";
+import { PERIODS, RESOLUTIONS, parseFormula, takesMany } from "./formula.js";
 
 // Node types: tag {ref}, num {value}, op {op}, neg, fn {name, period?}, out.
-// A total block is fn {name: "total", period: "day"}.
+// A total block is fn {name: "total", period: "day", resolution?: "1h"}.
 // Wires: {from, to, port} - the output of `from` into input `port` of `to`.
 // An output may feed any number of inputs; an input takes one wire at most.
 
@@ -84,6 +84,7 @@ export function graphFromText(text) {
     if (tree.k === "fn") {
       const fields = { type: "fn", name: tree.name };
       if (tree.period) fields.period = tree.period;
+      if (tree.resolution) fields.resolution = tree.resolution;
       const node = newNode(graph, fields);
       tree.args.forEach((arg, i) => graph.wires.push({ from: build(arg), to: node.id, port: i }));
       return node.id;
@@ -147,7 +148,11 @@ function nodeAst(graph, id, stack = []) {
   if (node.type === "fn" && node.name === "total") {
     need(1);
     const period = PERIODS.includes(node.period) ? node.period : "day";
-    return { k: "fn", name: "total", args: [sub(inputs[0])], period };
+    const tree = { k: "fn", name: "total", args: [sub(inputs[0])], period };
+    if (RESOLUTIONS.includes(node.resolution) && node.resolution !== "auto") {
+      tree.resolution = node.resolution;
+    }
+    return tree;
   }
   if (node.type === "fn" && !takesMany(node.name)) {
     need(1);
@@ -181,6 +186,7 @@ function emitAst(tree) {
   if (tree.k === "fn") {
     const args = tree.args.map((a) => emitAst(a).s);
     if (tree.period) args.push(tree.period);
+    if (tree.resolution) args.push(tree.resolution);
     return { s: `${tree.name}(${args.join(", ")})`, p: PREC_ATOM };
   }
   if (tree.k === "neg") {

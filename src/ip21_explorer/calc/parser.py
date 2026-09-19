@@ -11,6 +11,7 @@ the same shapes, as plain dicts:
     {"k": "bin", "op": "+", "a": node, "b": node}
     {"k": "fn", "name": "avg", "args": [node, ...]}
     {"k": "fn", "name": "total", "args": [node], "period": "day"}
+    {"k": "fn", "name": "total", "args": [node], "period": "day", "resolution": "1h"}
 
 Error messages match the browser's word for word, positions included.
 """
@@ -42,6 +43,11 @@ FUNCTIONS: Dict[str, bool] = {
 # over each calendar period. The period is a word, not a tag.
 PERIODS = ("hour", "day", "week", "month", "year")
 PERIOD_LIST = "hour, day, week, month or year"
+# An optional third word: how finely the expression inside is read, as
+# averages over that many seconds. auto (or leaving it out) lets the engine
+# pick the finest a long window allows.
+RESOLUTIONS = {"1min": 60.0, "5min": 300.0, "15min": 900.0, "1h": 3600.0, "auto": None}
+RESOLUTION_LIST = "1min, 5min, 15min, 1h or auto"
 
 # Comparisons give 1 or 0 and bind loosest of all; two in a row is an error.
 COMPARE = (">=", "<=", ">", "<")
@@ -211,7 +217,9 @@ class _Parser:
             return {"k": "fn", "name": token.v, "args": args}
         raise FormulaError(f'unexpected "{token.v}" at {token.i + 1}')
 
-    # After "total(": the expression, a comma, and a period word.
+    # After "total(": the expression, a comma, a period word, and optionally
+    # a comma and a resolution - which the tokenizer has split into a number
+    # and a name ("1min"), so it is read back as the text of its tokens.
     def total(self) -> Node:
         arg = self.compare()
         comma = self.peek()
@@ -223,8 +231,20 @@ class _Parser:
             said = f'"{word.v}"' if word else "nothing"
             raise FormulaError(f"{said} is not a period - use {PERIOD_LIST}")
         self.i += 1
+        node = {"k": "fn", "name": "total", "args": [arg], "period": word.v}
+        if self.peek() and self.peek().t == ",":
+            self.i += 1
+            said = ""
+            while self.peek() and self.peek().t not in (")", ","):
+                said += self.tokens[self.i].v
+                self.i += 1
+            if said not in RESOLUTIONS:
+                shown = f'"{said}"' if said else "nothing"
+                raise FormulaError(f"{shown} is not a resolution - use {RESOLUTION_LIST}")
+            if said != "auto":
+                node["resolution"] = said
         self.eat(")")
-        return {"k": "fn", "name": "total", "args": [arg], "period": word.v}
+        return node
 
 
 def _collect_refs(node: Node, out: List[str], bare: Set[str]) -> None:
