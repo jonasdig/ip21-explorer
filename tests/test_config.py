@@ -104,3 +104,10 @@ def test_read_workers_defaults_and_overrides(monkeypatch):
     assert Settings.from_env().read_workers == 4
     monkeypatch.setenv("IP21_READ_WORKERS", "1")
     assert Settings.from_env().read_workers == 1
+
+
+def test_agg_max_rows_defaults_and_overrides(monkeypatch):
+    monkeypatch.delenv("IP21_AGG_MAX_ROWS", raising=False)
+    assert Settings.from_env().agg_max_rows == 10_000
+    monkeypatch.setenv("IP21_AGG_MAX_ROWS", "5000")
+    assert Settings.from_env().agg_max_rows == 5_000

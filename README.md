@@ -223,6 +223,8 @@ Optional environment variables:
 | `IP21_TZ` | Timezone the server reports timestamps in (default `Europe/Oslo`) |
 | `IP21_PLOTS_DIR` | Where saved plots are stored (default `./plots`) |
 | `IP21_DESC_SCAN_MAX` | How many name-matched tags get a description lookup (default `100`, `0` disables); each uncached one costs a request |
+| `IP21_READ_WORKERS` | Tags of one request read from IP21 side by side (default `4`, `1` reads them one after another) |
+| `IP21_AGG_MAX_ROWS` | Most rows IP21 returns for one Average/Minimum/Maximum read (default `10000`); longer reads are split into windows of this size, and the server log warns if one comes back full |
 | `IP21_HOST`, `IP21_PORT` | Bind address (default `127.0.0.1:8021`) |
 
 Saved plots are written to `./plots/*.json` (override with `IP21_PLOTS_DIR`).

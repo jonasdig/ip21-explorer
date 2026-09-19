@@ -26,6 +26,9 @@ class Settings:
     # How many tags of one data request are read from IP21 at the same time.
     # tagreader would otherwise read them one after another; 1 restores that.
     read_workers: int = 4
+    # Rows IP21 returns at most for one aggregate (AVG/MIN/MAX) read; longer
+    # reads are split into windows of this many rows.
+    agg_max_rows: int = 10_000
     # Where favourites are written back to; set by cli() to the file in use.
     config_file: Path = field(default_factory=lambda: Path("ip21.env"))
 
@@ -43,6 +46,7 @@ class Settings:
             favorite_maps=parse_list(os.environ.get("IP21_FAVORITE_MAPS", "")),
             desc_scan_max=int(os.environ.get("IP21_DESC_SCAN_MAX", "100")),
             read_workers=int(os.environ.get("IP21_READ_WORKERS", "4")),
+            agg_max_rows=int(os.environ.get("IP21_AGG_MAX_ROWS", "10000")),
         )
 
 

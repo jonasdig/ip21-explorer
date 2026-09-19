@@ -12,7 +12,7 @@ import logging
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -32,6 +32,12 @@ DESCRIPTION_WORKERS = 8
 # round trips in a row. They are read side by side instead, this many at once.
 # Overridden from IP21_READ_WORKERS; 1 is the old one-call-for-all behaviour.
 READ_WORKERS = 4
+# IP21 answers an aggregate query (AVG, MIN, MAX) with at most this many rows,
+# and cuts the rest off without saying so. tagreader only asks again when an
+# answer fills its own, far larger, limit - so a long window at a fine
+# interval would silently end early. Such reads are split into windows of at
+# most this many rows. Overridden from IP21_AGG_MAX_ROWS.
+AGG_MAX_ROWS = 10_000
 # How many of the name-matched candidates get a description lookup, when a
 # multi-term query needs descriptions. One request per uncached tag, so this is
 # the number that has to stay small. Overridden from IP21_DESC_SCAN_MAX.
@@ -39,6 +45,36 @@ DESC_SCAN_MAX = 100
 # Names-only Browse cap for the candidate set: one request, no description
 # lookups, so it can be generous - it is what lets the note report a true total.
 CANDIDATE_BROWSE_MAX = 2000
+
+
+def aggregate_spans(start: float, end: float, interval_s: float,
+                    max_rows: int) -> List[Tuple[float, float]]:
+    """[start, end] cut into windows of at most max_rows rows each, counting
+    both ends, with every cut on a whole interval from start so the buckets
+    stay where one long read would have put them."""
+    step = interval_s * (max_rows - 1)
+    spans = []
+    at = start
+    while True:
+        stop = min(end, at + step)
+        spans.append((at, stop))
+        if stop >= end:
+            return spans
+        at = stop
+
+
+def _join(pieces: List[Series]) -> Series:
+    """One series from the spans of a split read; a row at a cut, returned by
+    both spans, is kept once."""
+    if len(pieces) == 1:
+        return pieces[0]
+    times = np.concatenate([t for t, _ in pieces])
+    values = np.concatenate([v for _, v in pieces])
+    order = np.argsort(times, kind="stable")
+    times, values = times[order], values[order]
+    keep = np.ones(len(times), dtype=bool)
+    keep[1:] = times[1:] != times[:-1]
+    return times[keep], values[keep]
 
 
 def _pattern(term: str) -> str:
@@ -85,6 +121,7 @@ class AspenSource:
         timezone_name: str = "Europe/Oslo",
         desc_scan_max: int = DESC_SCAN_MAX,
         read_workers: int = READ_WORKERS,
+        agg_max_rows: int = AGG_MAX_ROWS,
     ):
         try:
             from tagreader import IMSClient, ReaderType
@@ -115,6 +152,7 @@ class AspenSource:
         self._desc_cache: Dict[str, str] = {}
         self._desc_scan_max = max(0, desc_scan_max)
         self._read_workers = max(1, int(read_workers))
+        self._agg_max_rows = max(2, int(agg_max_rows))
         # Set by search_tags when the answer it gave is incomplete; the API
         # passes it on so the dropdown can say so.
         self.search_note: Optional[str] = None
@@ -301,45 +339,71 @@ class AspenSource:
         interval_s: float,
     ) -> Dict[str, Series]:
         interval_s = max(1.0, interval_s)
-        frame = self._read_frame(
-            tags, start, end, self._reader_types[sample_type], interval_s
+        # Interpolated reads are split by tagreader itself; aggregates are not.
+        spans = [(start, end)] if sample_type == SampleType.INT \
+            else aggregate_spans(start, end, interval_s, self._agg_max_rows)
+        return self._read_frame(
+            tags, spans, self._reader_types[sample_type], interval_s,
+            check_rows=sample_type != SampleType.INT,
         )
-        return {tag: series for tag, series in frame.items()}
 
     def _read_frame(
-        self, tags: List[str], start: float, end: float, reader_type, interval_s: float
+        self, tags: List[str], spans: List[Tuple[float, float]], reader_type,
+        interval_s: float, check_rows: bool = False,
     ) -> Dict[str, Series]:
-        def read(some: List[str]):
-            return self._client.read(
+        def read(job):
+            some, (start, end) = job
+            df = self._client.read(
                 some,
                 start_time=datetime.fromtimestamp(start, tz=timezone.utc),
                 end_time=datetime.fromtimestamp(end, tz=timezone.utc),
                 ts=int(interval_s),
                 read_type=reader_type,
             )
+            if check_rows and len(df) >= self._agg_max_rows:
+                # A full answer may be a cut one: the historian's limit may be
+                # lower than IP21_AGG_MAX_ROWS says.
+                logger.warning(
+                    "%s: %d rows for %s - %s, the most one aggregate read may "
+                    "return; if data is missing there, lower IP21_AGG_MAX_ROWS",
+                    ",".join(some), len(df),
+                    datetime.fromtimestamp(start, tz=timezone.utc).isoformat(),
+                    datetime.fromtimestamp(end, tz=timezone.utc).isoformat(),
+                )
+            return df
 
-        if self._read_workers == 1 or len(tags) == 1:
-            df = read(tags)
-            frames = {tag: df for tag in tags}
+        # One tag per call, side by side, on the same client the parallel
+        # description lookups already share - and one call per span of a long
+        # aggregate read. The answer per tag is the same frame one call for all
+        # of them would have given.
+        groups = [tags] if self._read_workers == 1 else [[tag] for tag in tags]
+        jobs = [(group, span) for group in groups for span in spans]
+        if self._read_workers == 1 or len(jobs) == 1:
+            frames = [read(job) for job in jobs]
         else:
-            # One tag per call, side by side, on the same client the parallel
-            # description lookups already share. The answer is the same frame
-            # per tag that one call for all of them would have been cut into.
-            workers = min(self._read_workers, len(tags))
+            workers = min(self._read_workers, len(jobs))
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                frames = dict(zip(tags, pool.map(lambda tag: read([tag]), tags)))
+                frames = list(pool.map(read, jobs))
+        if len(spans) > 1:
+            logger.debug("read %d tag(s) in %d spans of at most %d rows",
+                         len(tags), len(spans), self._agg_max_rows)
+
+        pieces: Dict[str, List[Series]] = {}
+        for (group, _), df in zip(jobs, frames):
+            for tag in group:
+                # tagreader names each column after the tag string it was given,
+                # "TAG;MAP" included.
+                if tag not in df.columns:
+                    continue
+                col = df[tag].dropna()
+                times = _epoch_seconds(col.index)
+                if times is None:
+                    logger.warning("%s: unexpected index %r, skipping", tag, col.index.dtype)
+                    continue
+                pieces.setdefault(tag, []).append((times, col.to_numpy(dtype=np.float64)))
 
         result: Dict[str, Series] = {}
         for tag in tags:
-            df = frames[tag]
-            # tagreader names each column after the tag string it was given,
-            # "TAG;MAP" included.
-            if tag not in df.columns:
-                continue
-            col = df[tag].dropna()
-            times = _epoch_seconds(col.index)
-            if times is None:
-                logger.warning("%s: unexpected index %r, skipping", tag, col.index.dtype)
-                continue
-            result[tag] = (times, col.to_numpy(dtype=np.float64))
+            if tag in pieces:
+                result[tag] = _join(pieces[tag])
         return result

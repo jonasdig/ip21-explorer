@@ -327,6 +327,7 @@ def make_source(settings: Settings) -> DataSource:
             timezone_name=settings.timezone,
             desc_scan_max=settings.desc_scan_max,
             read_workers=settings.read_workers,
+            agg_max_rows=settings.agg_max_rows,
         )
     raise ValueError(f"unknown source: {settings.source}")
 

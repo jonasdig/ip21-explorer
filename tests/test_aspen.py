@@ -463,3 +463,92 @@ def test_non_datetime_index_is_skipped_not_mangled(source, monkeypatch):
     )
     assert source.read(["TI-101"], 1_787_000_000.0, 1_787_000_600.0,
                        SampleType.INT, 60) == {}
+
+
+def test_aggregate_spans_cover_the_window_on_whole_intervals():
+    from ip21_explorer.sources.aspen import aggregate_spans
+
+    spans = aggregate_spans(0.0, 60.0 * 25_000, 60.0, 10_000)
+    assert spans == [(0.0, 599_940.0), (599_940.0, 1_199_880.0), (1_199_880.0, 1_500_000.0)]
+    assert aggregate_spans(0.0, 600.0, 60.0, 10_000) == [(0.0, 600.0)]
+
+
+class RowCappedRead:
+    """A historian that answers one row per interval, both ends included, and
+    silently stops after `cap` rows - as IP21 does for aggregates."""
+
+    def __init__(self, cap):
+        self.cap = cap
+        self.calls = []
+
+    def __call__(self, client, tags, start_time, end_time, ts, read_type):
+        import pandas as pd
+
+        self.calls.append((tags, start_time, end_time, read_type))
+        start = pd.Timestamp(start_time)
+        n = min(self.cap, int((pd.Timestamp(end_time) - start).total_seconds() // ts) + 1)
+        index = pd.date_range(start, periods=n, freq=f"{ts}s").tz_convert("Europe/Oslo")
+        base = (start - pd.Timestamp("2026-01-01", tz="UTC")).total_seconds() / ts
+        return pd.DataFrame({tag: base + np.arange(n, dtype=float) for tag in tags}, index=index)
+
+
+def test_long_aggregate_reads_are_split_and_joined(make_source, monkeypatch):
+    fake = RowCappedRead(cap=10_000)
+    monkeypatch.setattr(FakeClient, "read", lambda self, tags, **kw: fake(self, tags, **kw))
+    source = make_source()
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp()
+    end = start + 60 * 24_999                      # 25 000 one-minute buckets
+    out = source.read(["FI-104"], start, end, SampleType.AVG, 60)
+
+    t, v = out["FI-104"]
+    assert len(fake.calls) == 3
+    assert len(t) == 25_000 and len(np.unique(t)) == 25_000
+    assert t[0] == start and t[-1] == end
+    assert np.array_equal(v, np.arange(25_000, dtype=float))   # nothing lost at a cut
+
+
+def test_interpolated_reads_are_left_to_tagreader(make_source, monkeypatch):
+    fake = RowCappedRead(cap=100_000)
+    monkeypatch.setattr(FakeClient, "read", lambda self, tags, **kw: fake(self, tags, **kw))
+    source = make_source()
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp()
+    source.read(["TI-101"], start, start + 60 * 24_999, SampleType.INT, 60)
+    assert len(fake.calls) == 1
+
+
+def test_a_full_aggregate_answer_is_warned_about(make_source, monkeypatch, caplog):
+    # The server's limit is 5 000, not the 10 000 we were told.
+    fake = RowCappedRead(cap=5_000)
+    monkeypatch.setattr(FakeClient, "read", lambda self, tags, **kw: fake(self, tags, **kw))
+    source = make_source(agg_max_rows=5_000)
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp()
+    with caplog.at_level("WARNING"):
+        source.read(["FI-104"], start, start + 60 * 4_999, SampleType.AVG, 60)
+    assert "IP21_AGG_MAX_ROWS" in caplog.text
+
+
+def test_spans_of_several_tags_are_read_side_by_side(make_source, monkeypatch):
+    import threading
+    import time
+
+    fake = RowCappedRead(cap=10_000)
+    active, peak = [0], [0]
+    lock = threading.Lock()
+
+    def slow(self, tags, **kw):
+        with lock:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        time.sleep(0.05)
+        try:
+            return fake(self, tags, **kw)
+        finally:
+            with lock:
+                active[0] -= 1
+
+    monkeypatch.setattr(FakeClient, "read", slow)
+    source = make_source(read_workers=4)
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp()
+    out = source.read(["A", "B"], start, start + 60 * 24_999, SampleType.MAX, 60)
+    assert len(fake.calls) == 6 and peak[0] == 4
+    assert all(len(out[tag][0]) == 25_000 for tag in ("A", "B"))
