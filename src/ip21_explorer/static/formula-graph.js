@@ -190,10 +190,11 @@ function emitAst(tree) {
   return { s: `${left}${sign}${right}`, p };
 }
 
-// The text a graph stands for, and what stops it being one.
-export function textFromGraph(graph) {
+// The text a graph stands for, and what stops it being one - or, given a
+// block's id, the text of what that one block computes.
+export function textFromGraph(graph, id = "out") {
   try {
-    const tree = nodeAst(graph, "out");
+    const tree = nodeAst(graph, id);
     const text = `=${emitAst(tree).s}`;
     parseFormula(text); // a graph that cannot be read back is a bug, not a formula
     return { text, errors: [] };

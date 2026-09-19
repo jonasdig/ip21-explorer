@@ -58,10 +58,11 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   numbers, the arithmetic and every function - onto a canvas and wiring them
   together. Open it with the *ƒ* on the blank row, or *Edit visually* /
   *New formula from this tag* in a row's right-click menu. Tags can be
-  searched for right there, including ones that are not on the plot; `+`, `×`,
-  `min`, `max` and `avg` take any number of inputs. A preview trend shows the
-  result, and hovering over it shows every block's value at that moment, so a
-  long formula shows where it goes wrong. The text stays the truth: Apply
+  searched for right there, including ones that are not on the plot - their
+  data is fetched for the preview straight away; `+`, `×`, `min`, `max` and
+  `avg` take any number of inputs. A preview trend shows the result, or the
+  block whose ◉ is lit, and hovering over it shows every block's value at
+  that moment, so a long formula shows where it goes wrong. The text stays the truth: Apply
   writes the expression into the Tag field, it can still be edited as text,
   and the text field under the canvas rebuilds the blocks from what is typed
 - **XY plot with a time colour**: tags against a shared x, every point

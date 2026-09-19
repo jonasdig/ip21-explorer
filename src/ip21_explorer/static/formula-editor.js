@@ -6,7 +6,7 @@
    that already exists. The graph itself is kept on the row only so that the
    blocks come back where they were left. */
 
-import { apiSearchTags } from "./api.js";
+import { apiFetchSeries, apiSearchTags } from "./api.js";
 import { xAxisValues } from "./chart.js";
 import { isComputed, previewFormula, refSampler } from "./computed.js";
 import { MIN_QUERY_LEN, SEARCH_DEBOUNCE_MS } from "./constants.js";
@@ -17,6 +17,7 @@ import {
 } from "./formula-graph.js";
 import { makeTag, reqName, rt, saveState } from "./state.js";
 import { insertTags, setTagFields, tagLabel } from "./tags.js";
+import { resolveRange } from "./timerange.js";
 import { $, el, fmtTime, fmtVal } from "./util.js";
 
 // The one editor there is. tab and tag say what Apply writes to (tag null =
@@ -51,7 +52,11 @@ export function openFormulaEditor(tab, tag, seed) {
     if (!seed) Object.assign(graph.nodes[0], { x: 560, y: 160 });
   }
   session = { tab, tag: tag && isComputed(tag) ? tag : null, graph, pan: { x: 0, y: 0 },
-    selected: null, preview: null };
+    selected: null, preview: null, previewId: "out",
+    // Series fetched here for tags nothing has loaded yet, so the preview can
+    // show them before Apply; and the ones the server turned down.
+    fetched: new Map(), failed: new Map(), pending: new Set(),
+    abort: new AbortController() };
   shell.title.textContent = session.tag
     ? `Formula: ${tagLabel(tab, session.tag)}` : "New formula";
   fillRows();
@@ -148,7 +153,11 @@ function buildShell() {
     }
   });
   dialog.addEventListener("close", () => {
+    // The event is queued, and can arrive after the editor was opened again:
+    // it must not tear down the new session's preview.
+    if (dialog.open) return;
     if (session && session.preview) { session.preview.destroy(); session.preview = null; }
+    if (session) session.abort.abort();
   });
 
   text.addEventListener("keydown", (e) => {
@@ -157,6 +166,8 @@ function buildShell() {
     const typed = text.value.trim();
     try {
       session.graph = graphFromText(typed.startsWith("=") ? typed : `=${typed}`);
+      // Fresh blocks reuse ids, so a preview left on one would jump to another.
+      session.previewId = "out";
       render();
     } catch (err) {
       showErrors([err.message]);
@@ -281,7 +292,8 @@ function render() {
 
 function buildNode(node) {
   const selected = session.selected && session.selected.node === node.id;
-  const box = el("div", `fe-node ${node.type}` + (selected ? " selected" : ""));
+  const box = el("div", `fe-node ${node.type}` + (selected ? " selected" : "")
+    + (session.previewId === node.id ? " previewing" : ""));
   box.dataset.id = node.id;
   box.style.left = `${node.x}px`;
   box.style.top = `${node.y}px`;
@@ -289,6 +301,16 @@ function buildNode(node) {
   const head = el("div", "head");
   head.appendChild(el("span", "label", node.type === "tag" ? "Tag"
     : node.type === "num" ? "Number" : nodeLabel(node)));
+  const eye = el("button", "eye", "◉");
+  eye.title = node.type === "out" ? "Preview the result"
+    : session.previewId === node.id ? "Back to previewing the result" : "Preview this block";
+  eye.addEventListener("pointerdown", (e) => e.stopPropagation());
+  eye.addEventListener("click", (e) => {
+    e.stopPropagation();
+    session.previewId = session.previewId === node.id ? "out" : node.id;
+    render();
+  });
+  head.appendChild(eye);
   if (node.type !== "out") {
     const close = el("button", "x", "×");
     close.title = "Remove block";
@@ -500,6 +522,7 @@ function removeSelected() {
     }
   }
   session.selected = null;
+  if (!graph.nodes.some((n) => n.id === session.previewId)) session.previewId = "out";
   render();
 }
 
@@ -521,25 +544,74 @@ function refreshText(force) {
   // The preview is a small chart rebuilt from scratch, so typing in a block
   // waits for a pause before it is redrawn.
   clearTimeout(previewTimer);
-  previewTimer = setTimeout(() => renderPreview(errors.length ? null : text), 150);
+  previewTimer = setTimeout(renderPreview, 150);
 }
 
-function renderPreview(text) {
+// The label over the preview, e.g. "Preview: Result" or "Preview: ÷".
+function previewName() {
+  const node = session.graph.nodes.find((n) => n.id === session.previewId);
+  if (!node || node.type === "out") return "Result";
+  if (node.type === "tag") return node.ref || "Tag";
+  if (node.type === "num") return String(node.value);
+  return nodeLabel(node);
+}
+
+// Fetches the references the preview lacks, over the tab's window and with
+// the sampling Apply would use, then draws the preview again. A reference the
+// server refuses is remembered, not asked for again.
+function fetchMissing(refs) {
+  const want = refs.filter((ref) => !session.pending.has(ref) && !session.failed.has(ref));
+  if (!want.length) return;
+  const current = session;
+  const source = current.tag || makeTag({ name: "=" });
+  const { start, end } = resolveRange(current.tab);
+  const width = $("chart-wrap").clientWidth || 1200;
+  const points = Math.max(300, Math.min(4000, Math.round(width * 1.2)));
+  for (const ref of want) current.pending.add(ref);
+  // One request per tag: a misspelt one must not take the others down with it.
+  for (const ref of want) {
+    apiFetchSeries([ref], { start, end, sample: source.sample, interval: source.interval, points },
+      current.abort.signal)
+      .then((series) => {
+        if (series[ref]) current.fetched.set(ref, series[ref]);
+        else current.failed.set(ref, "no data");
+      })
+      .catch((err) => {
+        if (err.name !== "AbortError") current.failed.set(ref, err.message);
+      })
+      .finally(() => {
+        current.pending.delete(ref);
+        if (session === current && shell.dialog.open) renderPreview();
+      });
+  }
+}
+
+function renderPreview() {
   const box = shell.preview;
   if (session.preview) { session.preview.destroy(); session.preview = null; }
   box.innerHTML = "";
-  if (!text) { box.appendChild(el("div", "fe-none", "No preview until the formula is complete.")); return; }
+  const name = previewName();
+  const head = el("div", "fe-preview-head", `Preview: ${name}`);
+  box.appendChild(head);
+  const note = (message) => box.appendChild(el("div", "fe-none", message));
+  const { text, errors } = textFromGraph(session.graph, session.previewId);
+  if (errors.length) { note(`No preview until ${name} is complete.`); return; }
   const r = rt(session.tab);
-  const result = previewFormula(session.tab, r, text);
-  if (result.error) { box.appendChild(el("div", "fe-none", result.error)); return; }
+  const result = previewFormula(session.tab, r, text, session.fetched);
+  if (result.error) { note(result.error); return; }
   if (result.missing) {
-    box.appendChild(el("div", "fe-none",
-      `${result.missing.join(", ")}: not loaded yet - fetched on Apply, previewed after that.`));
+    const failed = result.missing.filter((ref) => session.failed.has(ref));
+    if (failed.length) {
+      note(failed.map((ref) => `${ref}: ${session.failed.get(ref)}`).join("; "));
+      return;
+    }
+    note(`Loading ${result.missing.join(", ")}…`);
+    fetchMissing(result.missing);
     return;
   }
-  const readout = el("div", "fe-readout");
-  box.appendChild(readout);
-  const sampler = refSampler(session.tab, r);
+  const readout = el("span", "fe-readout");
+  head.appendChild(readout);
+  const sampler = refSampler(session.tab, r, session.fetched);
   const width = Math.max(200, box.clientWidth - 8);
   session.preview = new uPlot({
     width,
@@ -550,7 +622,9 @@ function renderPreview(text) {
       // The main chart's 24-hour labels, not uPlot's own am/pm ones.
       { stroke: "#8b93a3", grid: { stroke: "#232834" }, ticks: { stroke: "#2e3442" },
         size: 34, values: xAxisValues },
-      { stroke: "#8b93a3", grid: { stroke: "#232834" }, ticks: { stroke: "#2e3442" }, size: 48 },
+      // A short chart: closer ticks than uPlot's default, or it shows just one.
+      { stroke: "#8b93a3", grid: { stroke: "#232834" }, ticks: { stroke: "#2e3442" }, size: 48,
+        space: 22 },
     ],
     series: [{}, { stroke: "#4fc3f7", width: 1.4, spanGaps: true, points: { show: false } }],
     cursor: { drag: { x: false, y: false }, points: { size: 6 } },

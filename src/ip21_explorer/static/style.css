@@ -788,6 +788,12 @@ dialog h3 { margin: 0 0 10px 0; }
   border: none; background: none; padding: 0 3px; color: var(--muted); height: auto;
 }
 #formula-editor .fe-node .head .x:hover { color: #e57373; }
+#formula-editor .fe-node .head .eye {
+  border: none; background: none; padding: 0 3px; color: var(--muted); height: auto; font-size: 10px;
+}
+#formula-editor .fe-node .head .eye:hover { color: #4fc3f7; }
+#formula-editor .fe-node.previewing { border-color: #4fc3f7; box-shadow: 0 0 0 1px #4fc3f7; }
+#formula-editor .fe-node.previewing .head .eye { color: #4fc3f7; }
 #formula-editor .fe-node .main { display: flex; align-items: center; min-height: 34px; }
 #formula-editor .fe-node .ins {
   display: flex;
@@ -833,11 +839,14 @@ dialog h3 { margin: 0 0 10px 0; }
 }
 #formula-editor .fe-errors { color: #e57373; font-size: 12px; }
 #formula-editor .fe-preview { position: relative; min-height: 40px; }
+#formula-editor .fe-preview-head {
+  display: flex;
+  justify-content: space-between;
+  color: #4fc3f7;
+  font-size: 11px;
+  padding: 0 2px 2px;
+}
 #formula-editor .fe-readout {
-  position: absolute;
-  right: 6px;
-  top: 2px;
-  z-index: 2;
   color: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;

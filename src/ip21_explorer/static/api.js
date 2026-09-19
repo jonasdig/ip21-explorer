@@ -12,6 +12,21 @@ export async function apiSearchTags(q, signal) {
   return await resp.json();
 }
 
+// One /api/data request outside a tab's own fetch: the series by tag name,
+// for the block editor's preview of tags nothing has loaded yet.
+export async function apiFetchSeries(tags, { start, end, sample, interval, points }, signal) {
+  const params = new URLSearchParams({
+    tags: tags.join(","), start: String(start), end: String(end),
+    sample, interval, points: String(points),
+  });
+  const resp = await fetch(`/api/data?${params}`, { signal });
+  if (!resp.ok) {
+    const detail = (await resp.json().catch(() => ({}))).detail;
+    throw new Error(detail || `data request failed (${resp.status})`);
+  }
+  return (await resp.json()).series;
+}
+
 // Favourite record maps, shared across tags and stored server-side in the env
 // file. Real tags have 30+ maps but only a few are ever used.
 export let favoriteMaps = [];

@@ -179,25 +179,26 @@ export function computeInto(tab, r, plan, failures) {
 
 // -- preview, for the block editor ------------------------------------------
 
-// A reference's series among what is already loaded: a row's own, or one a
-// formula fetched quietly. Nothing is fetched for a preview - that is what
-// Apply is for.
-function loadedSeries(tab, r, ref) {
-  if (!r || !r.raw) return null;
+// A reference's series among what is already loaded: a row's own, one a
+// formula fetched quietly, or one the editor fetched for its preview (extra,
+// a Map of ref -> {t, v}).
+function loadedSeries(tab, r, ref, extra) {
   const row = findRow(tab, ref);
-  if (row) return r.raw[row.uid] ? { raw: r.raw[row.uid], step: !!row.step } : null;
-  const key = Object.keys(r.raw).find((k) => k.startsWith(`#op:${ref}|`));
-  return key ? { raw: r.raw[key], step: false } : null;
+  const step = !!(row && row.step);
+  if (row && r && r.raw && r.raw[row.uid]) return { raw: r.raw[row.uid], step };
+  const key = !row && r && r.raw && Object.keys(r.raw).find((k) => k.startsWith(`#op:${ref}|`));
+  if (key) return { raw: r.raw[key], step };
+  return extra && extra.has(ref) ? { raw: extra.get(ref), step } : null;
 }
 
 // Reads any reference at any time from loaded data, the same way the formula
 // itself is computed: interpolated, held for a stepped tag, nothing across a
 // hole. For the per-block values under the preview cursor.
-export function refSampler(tab, r) {
+export function refSampler(tab, r, extra) {
   const cache = new Map();
   return (ref, t) => {
     if (!cache.has(ref)) {
-      const found = loadedSeries(tab, r, ref);
+      const found = loadedSeries(tab, r, ref, extra);
       cache.set(ref, found && { ...found, gap: 3 * medianStep(found.raw.t) });
     }
     const s = cache.get(ref);
@@ -207,12 +208,12 @@ export function refSampler(tab, r) {
 
 // The series a formula would produce, from what is loaded now: {t, v}, or
 // {missing} naming the references that are not loaded yet, or {error}.
-export function previewFormula(tab, r, text) {
+export function previewFormula(tab, r, text, extra) {
   let parsed;
   try { parsed = parseFormula(text); } catch (err) { return { error: err.message }; }
   const inputs = [], missing = [];
   for (const ref of parsed.refs) {
-    const found = loadedSeries(tab, r, ref);
+    const found = loadedSeries(tab, r, ref, extra);
     if (!found || !found.raw.t.length) missing.push(ref);
     else inputs.push({ t: found.raw.t, v: found.raw.v, step: found.step });
   }
