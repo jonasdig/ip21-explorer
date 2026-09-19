@@ -441,6 +441,39 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   font-size: 11px;
   border-bottom: 1px solid var(--border);
 }
+#tag-table .head { position: relative; user-select: none; }
+#tag-table .head .col {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: grab;
+}
+#tag-table .head.moving, #tag-table .head.moving .col { cursor: grabbing; }
+#tag-table .head .col .label { overflow: hidden; text-overflow: ellipsis; }
+/* The edge a column is sized by: wider than it looks, so it is easy to hit. */
+#tag-table .head .col-resize {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  right: 0;
+  width: 7px;
+  cursor: col-resize;
+  border-right: 1px solid transparent;
+}
+#tag-table .head .col:hover .col-resize { border-right-color: var(--border); }
+#tag-table .head .col-resize:hover { border-right-color: var(--accent) !important; }
+#tag-table .head .col-marker {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
 #tag-table .body {
   flex: 1;
   min-height: 0;

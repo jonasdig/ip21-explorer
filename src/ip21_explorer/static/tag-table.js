@@ -5,7 +5,7 @@ import { isComputed } from "./computed.js";
 import { openFormulaEditor } from "./formula-editor.js";
 import { isXyMode } from "./xy-chart.js";
 import { INTERVALS, SAMPLES } from "./constants.js";
-import { openSwatchMenu, showTagMenu } from "./menu.js";
+import { openMenu, openSwatchMenu, showTagMenu } from "./menu.js";
 import { activeTab, byUid, makeTag, normalizeTagName, saveState, state } from "./state.js";
 import {
   autoScale, ensureMaps, insertTags, moveTag, removeTag, renderTags,
@@ -34,6 +34,163 @@ const TAG_COLUMNS = [
   { key: "remove", label: "", width: "24px" },
 ];
 
+// Columns that stay where they are: the row grip first, the remove button last.
+const PINNED_FIRST = "grip";
+const PINNED_LAST = "remove";
+const MIN_COLUMN_W = 20;
+
+// The columns as the user arranged them - dragged into another order, or
+// dragged wider - over the defaults above. Keys it does not know, or misses,
+// fall back to the defaults, so a column added later still shows up.
+function columnLayout() {
+  const saved = state.tagColumns || {};
+  const known = new Map(TAG_COLUMNS.map((c) => [c.key, c]));
+  const middle = (saved.order || []).filter((k) =>
+    known.has(k) && k !== PINNED_FIRST && k !== PINNED_LAST);
+  for (const col of TAG_COLUMNS) {
+    if (!middle.includes(col.key) && col.key !== PINNED_FIRST && col.key !== PINNED_LAST) {
+      middle.push(col.key);
+    }
+  }
+  const widths = saved.widths || {};
+  return [PINNED_FIRST, ...middle, PINNED_LAST].map((key) => {
+    const w = Number(widths[key]);
+    return { ...known.get(key), width: w >= MIN_COLUMN_W ? `${w}px` : known.get(key).width };
+  });
+}
+
+// Cells stay in TAG_COLUMNS order in the DOM - cellOf() and the keyboard rely
+// on that - and are shown in the user's order through the grid's "order".
+function applyColumns(row, layout) {
+  row.style.gridTemplateColumns = layout.map((c) => c.width).join(" ");
+  const position = new Map(layout.map((c, i) => [c.key, i]));
+  TAG_COLUMNS.forEach((col, i) => {
+    if (row.children[i]) row.children[i].style.order = String(position.get(col.key));
+  });
+}
+
+function relayoutColumns() {
+  const layout = columnLayout();
+  applyColumns($("tag-table").querySelector(".head"), layout);
+  for (const row of tagRowEls.values()) applyColumns(row, layout);
+  if (newRowEl) applyColumns(newRowEl, layout);
+}
+
+function saveColumns(change) {
+  const layout = columnLayout();
+  const next = {
+    order: layout.map((c) => c.key),
+    widths: { ...((state.tagColumns || {}).widths || {}) },
+  };
+  change(next);
+  state.tagColumns = next;
+  saveState();
+  relayoutColumns();
+}
+
+// The heading row: drag a heading to move its column, drag its right edge to
+// size it, double-click the edge for the default width back.
+function buildHead(head) {
+  TAG_COLUMNS.forEach((col) => {
+    const cell = el("span", "col");
+    cell.dataset.key = col.key;
+    cell.appendChild(el("span", "label", col.label));
+    const fixed = col.key === PINNED_FIRST || col.key === PINNED_LAST;
+    if (!fixed) {
+      cell.addEventListener("pointerdown", (e) => beginColumnMove(e, head, col.key));
+      const grip = el("span", "col-resize");
+      grip.title = "Drag to resize, double-click for the default width";
+      grip.addEventListener("pointerdown", (e) => beginColumnResize(e, cell, col.key));
+      grip.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        saveColumns((next) => { delete next.widths[col.key]; });
+      });
+      cell.appendChild(grip);
+    }
+    head.appendChild(cell);
+  });
+  head.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    openMenu(e, [["Reset columns", null, () => {
+      delete state.tagColumns;
+      saveState();
+      relayoutColumns();
+    }]]);
+  });
+}
+
+function beginColumnResize(e, cell, key) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const startX = e.clientX;
+  const startW = cell.getBoundingClientRect().width;
+  const move = (ev) => {
+    const w = Math.max(MIN_COLUMN_W, Math.round(startW + ev.clientX - startX));
+    // Live, without saving on every pixel.
+    state.tagColumns = { order: columnLayout().map((c) => c.key),
+      widths: { ...((state.tagColumns || {}).widths || {}), [key]: w } };
+    relayoutColumns();
+  };
+  const up = () => {
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", up);
+    saveState();
+  };
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", up);
+}
+
+function beginColumnMove(e, head, key) {
+  if (e.button !== 0) return;
+  const startX = e.clientX;
+  let marker = null;
+  let target = null;
+  // Where the column would land: before the heading whose middle is right of
+  // the pointer, never before the grip nor after the remove column.
+  const dropIndex = (x) => {
+    const cells = [...head.querySelectorAll(".col")]
+      .filter((c) => c.dataset.key !== PINNED_FIRST && c.dataset.key !== PINNED_LAST)
+      .sort((a, b) => Number(a.style.order) - Number(b.style.order));
+    let index = cells.length;
+    for (let i = 0; i < cells.length; i++) {
+      const box = cells[i].getBoundingClientRect();
+      if (x < box.left + box.width / 2) { index = i; break; }
+    }
+    const edge = index < cells.length
+      ? cells[index].getBoundingClientRect().left - 3
+      : cells[cells.length - 1].getBoundingClientRect().right + 3;
+    return { index, edge, keys: cells.map((c) => c.dataset.key) };
+  };
+  const move = (ev) => {
+    if (!marker && Math.abs(ev.clientX - startX) < 5) return;
+    if (!marker) {
+      marker = el("div", "col-marker");
+      head.appendChild(marker);
+      head.classList.add("moving");
+    }
+    target = dropIndex(ev.clientX);
+    marker.style.left = `${target.edge - head.getBoundingClientRect().left + head.scrollLeft}px`;
+  };
+  const up = () => {
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", up);
+    if (!marker) return;
+    marker.remove();
+    head.classList.remove("moving");
+    if (!target) return;
+    const keys = target.keys.slice();
+    const from = keys.indexOf(key);
+    let to = target.index;
+    keys.splice(from, 1);
+    if (to > from) to -= 1;
+    keys.splice(to, 0, key);
+    saveColumns((next) => { next.order = [PINNED_FIRST, ...keys, PINNED_LAST]; });
+  };
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", up);
+}
+
 export const TAG_TABLE_DEFAULT_H = 200;
 // The resize strip plus the header row: dragged all the way down, the table
 // keeps only its column headings - enough to say it is there, and to drag it
@@ -58,10 +215,9 @@ export function renderTagTable() {
   panel.style.height = `${clampTableHeight(state.tagTableHeight)}px`;
 
   const head = panel.querySelector(".head");
-  if (!head.childElementCount) {
-    head.style.gridTemplateColumns = TAG_COLUMNS.map((c) => c.width).join(" ");
-    for (const col of TAG_COLUMNS) head.appendChild(el("span", null, col.label));
-  }
+  if (!head.childElementCount) buildHead(head);
+  const layout = columnLayout();
+  applyColumns(head, layout);
 
   const body = panel.querySelector(".body");
   // uids are unique per tab, so a tab switch starts from a clean slate.
@@ -81,6 +237,7 @@ export function renderTagTable() {
     let row = tagRowEls.get(tag.uid);
     if (!row) {
       row = buildTagRow(tag.uid);
+      applyColumns(row, layout);
       tagRowEls.set(tag.uid, row);
       body.appendChild(row);
     }
@@ -93,7 +250,7 @@ export function renderTagTable() {
   }
 
   // Always last, and re-appended after a tab switch empties the body.
-  if (!newRowEl) newRowEl = buildNewRow();
+  if (!newRowEl) { newRowEl = buildNewRow(); applyColumns(newRowEl, layout); }
   if (newRowEl.parentNode !== body) body.appendChild(newRowEl);
 }
 
@@ -107,7 +264,6 @@ function cellOf(row, key) {
 function buildTagRow(uid) {
   const row = el("div", "row");
   row.dataset.uid = uid;
-  row.style.gridTemplateColumns = TAG_COLUMNS.map((c) => c.width).join(" ");
   const tagOf = () => byUid(activeTab(), uid);
 
   for (const col of TAG_COLUMNS) {
@@ -412,7 +568,6 @@ function updateMapCell(tab, tag, cell, uid) {
 // row the historian had nothing for.
 function buildNewRow() {
   const row = el("div", "row newrow");
-  row.style.gridTemplateColumns = TAG_COLUMNS.map((c) => c.width).join(" ");
   for (const col of TAG_COLUMNS) row.appendChild(el("span", `cell ${col.key}`));
 
   const input = el("input");
