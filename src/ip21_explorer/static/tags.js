@@ -332,7 +332,7 @@ export function setTagFields(tab, tag, patch) {
       }
       // The description is a formula's name, and another formula may refer to
       // it, so renaming one can make or break the other.
-      if (recompute(tab, rt(tab))) rebuildJoined(tab, rt(tab));
+      if (tab.tags.some(isComputed)) recalc = true;
       redraw = true;
     } else if (key === "lineStyle" || key === "lineWidth" || key === "points" ||
                key === "symbol" || key === "pointColor") {

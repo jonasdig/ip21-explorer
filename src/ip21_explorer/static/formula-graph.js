@@ -5,10 +5,11 @@
    downstream - fetching, computing, saving - knows blocks exist. Pure: it
    imports only the parser. */
 
-import { PERIODS, RESOLUTIONS, parseFormula, takesMany } from "./formula.js";
+import { functionSpec, parseFormula, takesMany } from "./formula.js";
 
 // Node types: tag {ref}, num {value}, op {op}, neg, fn {name, period?}, out.
-// A total block is fn {name: "total", period: "day", resolution?: "1h"}.
+// A function block is fn {name, params: {setting: value}} - the settings a
+// call writes after its inputs, e.g. fn {name: "total", params: {period: "day"}}.
 // Wires: {from, to, port} - the output of `from` into input `port` of `to`.
 // An output may feed any number of inputs; an input takes one wire at most.
 
@@ -38,7 +39,10 @@ export function isVariadic(node) {
 export function inputPorts(graph, node) {
   if (node.type === "tag" || node.type === "num") return 0;
   if (node.type === "neg" || node.type === "out") return 1;
-  if (node.type === "fn" && !takesMany(node.name)) return 1;
+  if (node.type === "fn" && !takesMany(node.name)) {
+    const spec = functionSpec(node.name);
+    return spec ? Math.max(1, spec.inputs) : 1;
+  }
   if (!isVariadic(node)) return 2;
   const used = graph.wires.filter((w) => w.to === node.id).map((w) => w.port);
   return Math.max(2, (used.length ? Math.max(...used) + 1 : 0) + 1);
@@ -82,10 +86,9 @@ export function graphFromText(text) {
       return node.id;
     }
     if (tree.k === "fn") {
-      const fields = { type: "fn", name: tree.name };
-      if (tree.period) fields.period = tree.period;
-      if (tree.resolution) fields.resolution = tree.resolution;
-      const node = newNode(graph, fields);
+      const node = newNode(graph, {
+        type: "fn", name: tree.name, params: { ...(tree.params || {}) },
+      });
       tree.args.forEach((arg, i) => graph.wires.push({ from: build(arg), to: node.id, port: i }));
       return node.id;
     }
@@ -145,22 +148,21 @@ function nodeAst(graph, id, stack = []) {
     return sub(inputs[0]);
   }
   if (node.type === "neg") { need(1); return { k: "neg", a: sub(inputs[0]) }; }
-  if (node.type === "fn" && node.name === "total") {
-    need(1);
-    const period = PERIODS.includes(node.period) ? node.period : "day";
-    const tree = { k: "fn", name: "total", args: [sub(inputs[0])], period };
-    if (RESOLUTIONS.includes(node.resolution) && node.resolution !== "auto") {
-      tree.resolution = node.resolution;
-    }
-    return tree;
-  }
-  if (node.type === "fn" && !takesMany(node.name)) {
-    need(1);
-    return { k: "fn", name: node.name, args: [sub(inputs[0])] };
-  }
   if (node.type === "fn") {
-    if (!inputs.length) throw new Error(`${node.name} has no inputs`);
-    return { k: "fn", name: node.name, args: inputs.map(sub) };
+    const spec = functionSpec(node.name);
+    if (!spec) throw new Error(`${node.name} is not a function here`);
+    if (spec.variadic) {
+      if (!inputs.length) throw new Error(`${node.name} has no inputs`);
+      return { k: "fn", name: node.name, args: inputs.map(sub), params: {} };
+    }
+    need(spec.inputs);
+    // Only the settings the block was given, and only ones it knows.
+    const params = {};
+    for (const param of spec.params || []) {
+      const value = (node.params || {})[param.name];
+      if (value !== undefined && value !== "" && value !== null) params[param.name] = value;
+    }
+    return { k: "fn", name: node.name, args: inputs.slice(0, spec.inputs).map(sub), params };
   }
   if (isVariadic(node)) {
     if (inputs.length < 2) throw new Error(`${nodeLabel(node)} needs at least two inputs`);
@@ -185,9 +187,22 @@ function emitAst(tree) {
   if (tree.k === "ref") return { s: `[${tree.ref}]`, p: PREC_ATOM };
   if (tree.k === "fn") {
     const args = tree.args.map((a) => emitAst(a).s);
-    if (tree.period) args.push(tree.period);
-    if (tree.resolution) args.push(tree.resolution);
-    return { s: `${tree.name}(${args.join(", ")})`, p: PREC_ATOM };
+    const spec = functionSpec(tree.name);
+    // Settings are positional, so one that is left out means every later one
+    // is too; the ones at the end that match the default are dropped.
+    const words = [];
+    for (const param of (spec && spec.params) || []) {
+      const value = (tree.params || {})[param.name];
+      words.push(value === undefined ? null : String(value));
+    }
+    while (words.length && (words[words.length - 1] === null
+        || words[words.length - 1] === String(spec.params[words.length - 1].default))) {
+      words.pop();
+    }
+    for (let i = 0; i < words.length; i++) {
+      if (words[i] === null) words[i] = String(spec.params[i].default);
+    }
+    return { s: `${tree.name}(${args.concat(words).join(", ")})`, p: PREC_ATOM };
   }
   if (tree.k === "neg") {
     const inner = emitAst(tree.a);

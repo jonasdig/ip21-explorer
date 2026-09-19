@@ -8,11 +8,14 @@ version = "0.1.0"
 description = "Fast trend viewer for IP21 process data"
 license = {text = "MIT"}
 classifiers = ["License :: OSI Approved :: MIT License"]
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.100",
     "uvicorn[standard]>=0.23",
     "numpy>=1.24",
+    # The function library behind the formula catalog: Cognite's indsl
+    # (Apache 2.0), with the extras its toolboxes need.
+    "indsl[fluids,modeling,scikit,stats]>=8.9",
     # Calendar days for total() are local; Windows has no zone database of
     # its own for zoneinfo to read.
     "tzdata; sys_platform == 'win32'",
@@ -33,3 +36,8 @@ ip21_explorer = ["static/*", "static/vendor/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    # indsl's own defaults, e.g. pd.Timedelta("3d"), which pandas 4 will want
+    # spelled "3D". Nothing we can fix from here.
+    "ignore::pandas.errors.Pandas4Warning",
+]

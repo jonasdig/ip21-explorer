@@ -52,6 +52,11 @@ def _multi(name: str, stack: np.ndarray) -> np.ndarray:
     return out
 
 
+def _is_leaf(node: Node) -> bool:
+    from .engine import is_series_function   # late: engine imports this module
+    return is_series_function(node)
+
+
 def _compare(op: str, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     if op == ">":
         out = a > b
@@ -78,7 +83,7 @@ def _eval(node: Node, column: Callable[[Node], Column], size: int) -> Column:
     kind = node["k"]
     if kind == "num":
         return np.full(size, float(node["v"]))
-    if kind == "ref" or (kind == "fn" and node["name"] == "total"):
+    if kind == "ref" or (kind == "fn" and _is_leaf(node)):
         return np.asarray(column(node), dtype=float)
     if kind == "neg":
         return -_eval(node["a"], column, size)

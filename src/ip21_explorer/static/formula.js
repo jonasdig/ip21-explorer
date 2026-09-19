@@ -14,25 +14,74 @@ export function isFormula(name) {
   return typeof name === "string" && name.trimStart().startsWith("=");
 }
 
-// Functions an expression may call, in the order the "unknown function"
-// message lists them (calc/parser.py lists them the same way). The block
-// editor offers every one and needs to know which take several inputs.
-export const FUNCTION_NAMES = [
-  "abs", "sqrt", "ln", "log10", "exp", "round", "min", "max", "avg", "total",
-];
-const MULTI = new Set(["min", "max", "avg"]);
-export function takesMany(name) { return MULTI.has(name); }
+// What a formula may call, from /api/functions: our own handful and every
+// library function the server can run, each with how many inputs it takes and
+// what settings follow them. The server builds it from the same catalog it
+// computes with (calc/catalog.py), so the two can never drift apart.
+let specs = new Map();
+let specGroups = [];
 
-// total(expression, period): the expression read as a rate per hour, summed
-// over each calendar period - m3/h becomes m3 per day, a comparison (1 or 0)
-// becomes hours per day. The period is a word, not a tag.
-export const PERIODS = ["hour", "day", "week", "month", "year"];
-const PERIOD_LIST = "hour, day, week, month or year";
-// An optional third word: how finely the expression inside is read, as
-// averages over that interval. Every one divides an hour. auto (the same as
-// leaving it out) lets the server pick the finest a long window allows.
-export const RESOLUTIONS = ["1min", "5min", "15min", "1h", "auto"];
-const RESOLUTION_LIST = "1min, 5min, 15min, 1h or auto";
+export function setFunctionCatalog(answer) {
+  specs = new Map();
+  specGroups = (answer && answer.groups) || [];
+  for (const group of specGroups) {
+    for (const spec of group.functions) specs.set(spec.name, { ...spec, group: group.name });
+  }
+}
+
+export function functionSpec(name) { return specs.get(name) || null; }
+export function functionGroups() { return specGroups; }
+export function takesMany(name) {
+  const spec = specs.get(name);
+  return !!(spec && spec.variadic);
+}
+
+// Before the catalog has arrived - and in a tab opened offline - the handful
+// of functions the app has always had still parse.
+setFunctionCatalog({ groups: [{ name: "Basic", functions: [
+  ...["abs", "sqrt", "ln", "log10", "exp", "round"].map((name) =>
+    ({ name, inputs: 1, params: [] })),
+  ...["min", "max", "avg"].map((name) =>
+    ({ name, inputs: 1, variadic: true, params: [] })),
+  { name: "total", inputs: 1, params: [
+    { name: "period", kind: "choice", default: "day",
+      choices: ["hour", "day", "week", "month", "year"] },
+    { name: "resolution", kind: "choice", default: "auto",
+      choices: ["auto", "1min", "5min", "15min", "1h"] },
+  ] },
+] }] });
+
+const DURATION_AT = /^(\d+(?:\.\d+)?)(ms|s|min|h|d|w)$/i;
+const TRUE_WORDS = ["true", "yes", "on", "1"];
+const FALSE_WORDS = ["false", "no", "off", "0"];
+
+// One setting's word to its value, with the same words and the same
+// complaints as calc/catalog.py.
+export function readWord(spec, param, word) {
+  const wrong = (expected) =>
+    new Error(`${spec.name}: ${param.name} expects ${expected}, got "${word}"`);
+  if (param.kind === "number") {
+    const value = Number(word);
+    if (word === "" || !Number.isFinite(value)) throw wrong("a number");
+    return value;
+  }
+  if (param.kind === "duration") {
+    if (!DURATION_AT.test(word)) throw wrong("a duration like 30min, 4h or 3d");
+    return word;
+  }
+  if (param.kind === "flag") {
+    if (TRUE_WORDS.includes(word.toLowerCase())) return true;
+    if (FALSE_WORDS.includes(word.toLowerCase())) return false;
+    throw wrong("true or false");
+  }
+  if (param.kind === "choice") {
+    if (!param.choices.includes(word)) {
+      throw new Error(`${spec.name}: ${param.name} must be one of ${param.choices.join(", ")}`);
+    }
+    return word;
+  }
+  return word;
+}
 
 // Comparisons give 1 or 0, and bind loosest of all: [A] + 1 > [B] compares
 // the sum. Two in a row is not a thing a formula needs, so it is an error.
@@ -151,48 +200,49 @@ function parsePrimary(p) {
     const next = peek(p);
     // A name followed by "(" is a call; anything else is a tag.
     if (!next || next.t !== "(") return { k: "ref", ref: token.v, bare: true };
-    if (!FUNCTION_NAMES.includes(token.v)) {
-      throw new Error(`unknown function "${token.v}" - try ${FUNCTION_NAMES.join(", ")}`);
+    const spec = functionSpec(token.v);
+    if (!spec) {
+      throw new Error(`unknown function "${token.v}" - the block editor's palette `
+        + "has the ones there are");
     }
     p.i += 1;
-    if (token.v === "total") return parseTotal(p);
-    const args = [parseCompare(p)];
-    while (peek(p) && peek(p).t === ",") { p.i += 1; args.push(parseCompare(p)); }
-    eat(p, ")");
-    if (args.length > 1 && !MULTI.has(token.v)) {
-      throw new Error(`${token.v}() takes one argument`);
-    }
-    return { k: "fn", name: token.v, args };
+    return parseCall(p, spec);
   }
   throw new Error(`unexpected "${token.v}" at ${token.i + 1}`);
 }
 
-// After "total(": the expression, a comma, a period word, and optionally a
-// comma and a resolution - which the tokenizer has split into a number and a
-// name ("1min"), so it is read back as the text of its tokens.
-function parseTotal(p) {
-  const arg = parseCompare(p);
-  const comma = peek(p);
-  if (!comma || comma.t !== ",") throw new Error(`total() needs a period: ${PERIOD_LIST}`);
-  p.i += 1;
-  const word = peek(p);
-  if (!word || word.t !== "name" || !PERIODS.includes(word.v)) {
-    const said = word ? `"${word.v}"` : "nothing";
-    throw new Error(`${said} is not a period - use ${PERIOD_LIST}`);
-  }
-  p.i += 1;
-  const node = { k: "fn", name: "total", args: [arg], period: word.v };
-  if (peek(p) && peek(p).t === ",") {
+// A call: its inputs as expressions, then one word per setting. Settings at
+// the end may be left out and keep their defaults.
+function parseCall(p, spec) {
+  const args = [parseCompare(p)];
+  while (spec.variadic && peek(p) && peek(p).t === ",") {
     p.i += 1;
-    let said = "";
-    while (peek(p) && peek(p).t !== ")" && peek(p).t !== ",") said += p.tokens[p.i++].v;
-    if (!RESOLUTIONS.includes(said)) {
-      throw new Error(`${said ? `"${said}"` : "nothing"} is not a resolution - use ${RESOLUTION_LIST}`);
-    }
-    if (said !== "auto") node.resolution = said;
+    args.push(parseCompare(p));
   }
+  while (args.length < spec.inputs) {
+    eat(p, ",");
+    args.push(parseCompare(p));
+  }
+  const params = {};
+  for (const param of spec.params || []) {
+    if (!(peek(p) && peek(p).t === ",")) break;
+    p.i += 1;
+    let word = "";
+    while (peek(p) && peek(p).t !== ")" && peek(p).t !== ",") word += p.tokens[p.i++].v;
+    params[param.name] = readWord(spec, param, word);
+  }
+  if (peek(p) && peek(p).t === ",") throw new Error(tooMany(spec));
   eat(p, ")");
-  return node;
+  return { k: "fn", name: spec.name, args, params };
+}
+
+function tooMany(spec) {
+  const inputs = spec.variadic ? "any number of inputs"
+    : spec.inputs === 1 ? "1 input" : `${spec.inputs} inputs`;
+  const count = (spec.params || []).length;
+  if (!count) return `${spec.name} takes ${inputs} and no settings`;
+  const settings = count === 1 ? "1 setting" : `${count} settings`;
+  return `${spec.name} takes ${inputs} and up to ${settings}`;
 }
 
 function collectRefs(node, out, bare) {

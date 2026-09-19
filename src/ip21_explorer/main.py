@@ -17,6 +17,7 @@ from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 
 from .calc import CachedSource, auto_interval, compute
+from .calc.catalog import as_json as functions_json
 from .calc.engine import NICE_INTERVALS  # noqa: F401 - part of this module's API
 from .config import Settings, load_env_file, write_env_setting
 from .sources.base import DataSource, SampleType
@@ -202,6 +203,13 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
                 for tag, (t_arr, v_arr) in series.items()
             },
         }
+
+    @app.get("/api/functions")
+    async def list_functions():
+        """Every function a formula may call, by group: what the block editor
+        builds its palette and help from, and what the browser's parser
+        checks a half-written formula against."""
+        return await asyncio.to_thread(functions_json)
 
     @app.post("/api/compute")
     async def compute_formulas(body: Dict[str, Any] = Body(...)):

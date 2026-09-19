@@ -170,7 +170,7 @@ range or sampling changes, with stale requests cancelled.
 
 ## Installation
 
-Python 3.9 or newer; tested on 3.9 and 3.13.
+Python 3.11 or newer (the function library needs it); tested on 3.13.
 
 ```bash
 git clone https://github.com/jonasdig/ip21-explorer.git
@@ -252,9 +252,12 @@ that, when one Ctrl+F5 clears the copy the browser cached on its own.
 
 ```
 src/ip21_explorer/
-  main.py              FastAPI app: /api/tags, /api/data, /api/compute, /api/plots + static files
+  main.py              FastAPI app: /api/tags, /api/data, /api/compute, /api/functions, /api/plots + static files
   config.py            Settings from env vars / CLI
   calc/                Formulas, independent of the web app (so an alarm service can use it)
+    catalog.py         Every function a formula may call, ours and indsl's
+    indsl_catalog.py   indsl's toolboxes, read from its signatures and docstrings
+    run_function.py    Calling one of them over a series, through pandas
     parser.py          "=" expressions, the same grammar as static/formula.js
     align.py           Reading a series at a time it has no sample of
     evaluate.py        An expression over aligned columns
@@ -271,7 +274,7 @@ src/ip21_explorer/
     api.js, data.js    Server API wrappers; fetching and joining trend data
     chart.js           uPlot chart; axis-gutter.js draws the stacked axis
     tags.js            Adding/removing tags, units, the tag setter
-    formula.js         "=" expressions: the parser, for blocks and errors while typing
+    formula.js         "=" expressions: the parser, driven by /api/functions
     resample.js        Reading a series at a time it has no sample of (XY, previews)
     computed.js        Formula rows: references, order, asking the server
     formula-graph.js   Formulas as blocks and wires, and back to text

@@ -10,14 +10,14 @@ import { apiSearchTags } from "./api.js";
 import { xAxisValues } from "./chart.js";
 import { isComputed, previewFormulas } from "./computed.js";
 import { MIN_QUERY_LEN, SEARCH_DEBOUNCE_MS } from "./constants.js";
-import { FUNCTION_NAMES, PERIODS, RESOLUTIONS } from "./formula.js";
+import { functionGroups, functionSpec, readWord } from "./formula.js";
 import { BLOCK_HELP, helpKey } from "./formula-help.js";
 import {
   emptyGraph, graphFromText, inputPorts, isVariadic, layoutGraph,
   newNode, nodeLabel, textFromGraph,
 } from "./formula-graph.js";
 import { medianStep, sampleAt } from "./resample.js";
-import { makeTag, reqName, rt, saveState } from "./state.js";
+import { makeTag, reqName, rt, saveState, state } from "./state.js";
 import { insertTags, setTagFields, tagLabel } from "./tags.js";
 import { resolveRange } from "./timerange.js";
 import { $, el, fmtTime, fmtVal } from "./util.js";
@@ -60,6 +60,8 @@ export function openFormulaEditor(tab, tag, seed) {
   shell.title.textContent = session.tag
     ? `Formula: ${tagLabel(tab, session.tag)}` : "New formula";
   fillRows();
+  shell.filter.value = "";
+  fillBlocks("");
   shell.search.value = "";
   shell.results.innerHTML = "";
   // Open first: the wires are drawn between ports measured on screen, and a
@@ -85,11 +87,17 @@ function buildShell() {
   search.autocomplete = "off";
   const results = el("div", "fe-list");
   const rows = el("div", "fe-list");
-  const blocks = el("div", "fe-blocks");
+  const filter = el("input", "fe-search");
+  filter.type = "text";
+  filter.placeholder = "Filter blocks…";
+  filter.spellcheck = false;
+  filter.autocomplete = "off";
+  filter.addEventListener("input", () => fillBlocks(filter.value));
+  const blocks = el("div", "fe-groups");
   palette.append(
     search, results,
     el("h4", null, "On this plot"), rows,
-    el("h4", null, "Blocks"), blocks,
+    el("h4", null, "Blocks"), filter, blocks,
   );
 
   const canvas = el("div", "fe-canvas");
@@ -119,9 +127,6 @@ function buildShell() {
 
   dialog.append(title, body, foot);
 
-  for (const [label, fields] of paletteBlocks()) {
-    blocks.appendChild(paletteItem(label, fields, "fe-block"));
-  }
 
   // Background drag pans; a click on nothing clears the selection.
   canvas.addEventListener("pointerdown", (e) => {
@@ -217,12 +222,14 @@ function buildShell() {
     }, SEARCH_DEBOUNCE_MS);
   });
 
-  return { dialog, title, canvas, world, wires, nodes, search, results, rows,
-    text, errors, preview, apply };
+  return { dialog, title, canvas, world, wires, nodes, search, results, rows, filter,
+    blocks, text, errors, preview, apply };
 }
 
 // Every block the parser knows, grouped as a toolbox reads.
-function paletteBlocks() {
+// The arithmetic, which has no place in the server's catalog because the
+// evaluator knows it by heart.
+function operatorBlocks() {
   return [
     ["Number", { type: "num", value: 1 }],
     ["+", { type: "op", op: "+" }],
@@ -235,8 +242,61 @@ function paletteBlocks() {
     ["<", { type: "op", op: "<" }],
     ["≥", { type: "op", op: ">=" }],
     ["≤", { type: "op", op: "<=" }],
-  ].concat(FUNCTION_NAMES.map((name) => [name,
-    name === "total" ? { type: "fn", name, period: "day" } : { type: "fn", name }]));
+  ];
+}
+
+// A function block as it starts out: every setting at its default, so the
+// text says what the block shows.
+function fnFields(spec) {
+  const params = {};
+  for (const param of spec.params || []) {
+    if (param.default !== null && param.default !== undefined) params[param.name] = param.default;
+  }
+  return { type: "fn", name: spec.name, params };
+}
+
+// The palette's blocks: the arithmetic and Basic first, then one foldable
+// group per library toolbox. A word in the filter box searches every group at
+// once, by name and by what the function says it does.
+function fillBlocks(query) {
+  const box = shell.blocks;
+  box.innerHTML = "";
+  const want = (query || "").trim().toLowerCase();
+  const matches = (name, short) => !want
+    || name.toLowerCase().includes(want) || (short || "").toLowerCase().includes(want);
+
+  const groups = [];
+  const basic = operatorBlocks().filter(([label, fields]) =>
+    matches(label, (BLOCK_HELP[helpKey(fields)] || {}).short));
+  for (const group of functionGroups()) {
+    const found = group.functions.filter((spec) => matches(spec.name, spec.short));
+    const items = found.map((spec) => [
+      spec.name.includes(".") ? spec.name.split(".")[1] : spec.name, fnFields(spec)]);
+    groups.push([group.name, group.name === "Basic" ? basic.concat(items) : items]);
+  }
+  if (!groups.some(([name]) => name === "Basic")) groups.unshift(["Basic", basic]);
+
+  for (const [name, items] of groups) {
+    if (!items.length) continue;
+    // Open: Basic always, everything else while a filter is narrowing it down
+    // or the user has opened it before.
+    const open = name === "Basic" || !!want || state.openBlockGroups?.includes(name);
+    const details = el("details", "fe-group");
+    details.open = open;
+    const summary = el("summary", null, `${name} (${items.length})`);
+    details.appendChild(summary);
+    const list = el("div", "fe-blocks");
+    for (const [label, fields] of items) list.appendChild(paletteItem(label, fields, "fe-block"));
+    details.appendChild(list);
+    details.addEventListener("toggle", () => {
+      if (want) return;   // a filtered view is not a choice worth remembering
+      const kept = new Set(state.openBlockGroups || []);
+      details.open ? kept.add(name) : kept.delete(name);
+      state.openBlockGroups = [...kept];
+      saveState();
+    });
+    box.appendChild(details);
+  }
 }
 
 // The rows on the tab, for quick access: their bare request name is what a
@@ -254,9 +314,25 @@ function fillRows() {
 }
 
 // A palette entry: click to drop the block mid-canvas, or drag it to a spot.
+// What a block says about itself: our own words for the arithmetic, and the
+// library's own documentation for everything else.
+function blockHelp(node) {
+  if (node.type !== "fn") return BLOCK_HELP[helpKey(node)];
+  const spec = functionSpec(node.name);
+  if (!spec) return BLOCK_HELP[helpKey(node)];
+  const own = BLOCK_HELP[helpKey(node)];
+  if (own) return own;
+  const long = (spec.long || []).slice();
+  for (const param of spec.params || []) {
+    const shown = [param.label || param.name, param.help].filter(Boolean).join(": ");
+    long.push(`${param.name} - ${shown}${param.default != null ? ` (default ${param.default})` : ""}`);
+  }
+  return { short: spec.short || spec.name, long: long.length ? long : null };
+}
+
 function paletteItem(label, fields, cls) {
   const item = el("div", `fe-item ${cls}`, label);
-  const help = BLOCK_HELP[helpKey(fields)];
+  const help = blockHelp(fields);
   if (help) item.title = help.short + (help.long ? " - its ? on the canvas says more" : "");
   item.addEventListener("pointerdown", (e) => {
     e.preventDefault();
@@ -327,7 +403,7 @@ function buildNode(node) {
   head.appendChild(el("span", "label", node.type === "tag" ? "Tag"
     : node.type === "num" ? "Number" : nodeLabel(node)));
   // A "?" only where a line of tooltip is not enough.
-  const help = BLOCK_HELP[helpKey(node)];
+  const help = blockHelp(node);
   if (help && help.long) {
     const ask = el("button", "help", "?");
     ask.title = "What this block does";
@@ -392,38 +468,9 @@ function buildNode(node) {
   } else if (node.type === "out") {
     content.appendChild(el("span", "big", "="));
   } else {
-    content.appendChild(el("span", "big", nodeLabel(node)));
-    // A total sums over calendar periods: which one is the block's own choice.
-    if (node.type === "fn" && node.name === "total") {
-      const period = el("select", "period");
-      for (const name of PERIODS) {
-        const opt = el("option", null, `per ${name}`);
-        opt.value = name;
-        period.appendChild(opt);
-      }
-      period.value = node.period || "day";
-      period.title = "Sum per calendar period, of the input read as a rate per hour";
-      period.addEventListener("pointerdown", (e) => e.stopPropagation());
-      period.addEventListener("change", () => { node.period = period.value; refreshText(); });
-      content.appendChild(period);
-      // How finely what goes in is read. Matters most for a comparison: at
-      // 1 h, an hour is counted whole or not at all.
-      const resolution = el("select", "period");
-      for (const name of RESOLUTIONS) {
-        const opt = el("option", null, name === "auto" ? "auto resolution" : `read per ${name}`);
-        opt.value = name;
-        resolution.appendChild(opt);
-      }
-      resolution.value = node.resolution || "auto";
-      resolution.title = "How finely the input is read, as averages over this interval";
-      resolution.addEventListener("pointerdown", (e) => e.stopPropagation());
-      resolution.addEventListener("change", () => {
-        if (resolution.value === "auto") delete node.resolution;
-        else node.resolution = resolution.value;
-        refreshText();
-      });
-      content.appendChild(resolution);
-    }
+    content.appendChild(el("span", "big",
+      node.type === "fn" ? shortName(node.name) : nodeLabel(node)));
+    for (const control of paramControls(node)) content.appendChild(control);
   }
   content.appendChild(el("span", "val"));
   main.appendChild(content);
@@ -460,6 +507,70 @@ function placeHelp() {
   const up = below < card.offsetHeight && above > below;
   card.classList.toggle("above", up);
   card.style.maxHeight = `${Math.max(120, up ? above : below)}px`;
+}
+
+// A function's settings, one control each, built from what the server says
+// the function takes. Their values live on the block and are written after
+// the inputs in the text.
+function paramControls(node) {
+  const spec = node.type === "fn" ? functionSpec(node.name) : null;
+  if (!spec || !(spec.params || []).length) return [];
+  const value = (param) => {
+    const own = (node.params || {})[param.name];
+    return own === undefined || own === null ? param.default : own;
+  };
+  const set = (param, next) => {
+    node.params = node.params || {};
+    if (next === "" || next === null) delete node.params[param.name];
+    else node.params[param.name] = next;
+    refreshText();
+  };
+  return (spec.params || []).map((param) => {
+    const row = el("label", "fe-param");
+    row.title = [param.label, param.help].filter(Boolean).join(": ");
+    let field;
+    if (param.kind === "choice") {
+      field = el("select");
+      for (const choice of param.choices) {
+        const option = el("option", null, choice);
+        option.value = choice;
+        field.appendChild(option);
+      }
+      field.value = value(param) ?? param.choices[0];
+      field.addEventListener("change", () => set(param, field.value));
+    } else if (param.kind === "flag") {
+      field = el("input");
+      field.type = "checkbox";
+      field.checked = !!value(param);
+      field.addEventListener("change", () => set(param, field.checked));
+    } else {
+      field = el("input");
+      field.type = "text";
+      field.spellcheck = false;
+      field.value = value(param) === null || value(param) === undefined ? "" : value(param);
+      field.placeholder = param.kind === "duration" ? "1h" : "auto";
+      field.addEventListener("input", () => {
+        const typed = field.value.trim();
+        // A setting is only written into the formula once it makes sense;
+        // the error line says what is wrong with it meanwhile.
+        try {
+          set(param, typed === "" ? "" : readWord(spec, param, typed));
+          row.classList.remove("bad");
+        } catch (err) {
+          row.classList.add("bad");
+        }
+      });
+    }
+    field.addEventListener("pointerdown", (e) => e.stopPropagation());
+    row.append(el("span", "name", param.label || param.name), field);
+    return row;
+  });
+}
+
+// "smooth.sg" is written in full in the formula, but the block is in the
+// Smooth group already.
+function shortName(name) {
+  return name.includes(".") ? name.split(".")[1] : name;
 }
 
 // Where a port sits in world coordinates - the space the SVG draws in.

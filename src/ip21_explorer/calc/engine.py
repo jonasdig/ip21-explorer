@@ -27,8 +27,10 @@ import numpy as np
 from ..sources.base import DataSource, SampleType
 from .align import align_onto, union_times
 from .evaluate import evaluate
-from .parser import RESOLUTIONS, FormulaError, Node, Parsed, parse_formula, resolve_hint
+from .catalog import RESOLUTION_S, find
+from .parser import FormulaError, Node, Parsed, parse_formula, resolve_hint
 from .periods import period_bounds
+from .run_function import RunError, run_function
 
 logger = logging.getLogger("ip21_explorer")
 
@@ -90,7 +92,7 @@ def total_window(window: Window, period: str, zone: ZoneInfo, now: float,
     end = min(bounds[-1], max(window.end, now))
     bounds = [b for b in bounds if b < end] + [end]
     span = end - bounds[0]
-    wanted = RESOLUTIONS.get(resolution or "auto") or 0.0
+    wanted = RESOLUTION_S.get(resolution or "auto") or 0.0
     # Asked for, but so fine over so long a window that the historian should
     # not be asked it: the finest that is not too many points instead.
     candidates = [i for i in TOTAL_INTERVALS if i >= wanted]
@@ -188,8 +190,8 @@ class _Computation:
             yield from self._needs_node(node["a"], refs, window, seen)
             yield from self._needs_node(node["b"], refs, window, seen)
         elif kind == "fn" and node["name"] == "total":
-            inner, _ = total_window(window, node["period"], self.zone, self.now,
-                                    node.get("resolution"))
+            inner, _ = total_window(window, _period(node), self.zone, self.now,
+                                    node.get("params", {}).get("resolution"))
             yield from self._needs_node(node["args"][0], refs, inner, seen)
         elif kind == "fn":
             for arg in node["args"]:
@@ -272,8 +274,10 @@ class _Computation:
                 ref = leaf["ref"]
                 if ref not in leaves:
                     leaves[ref] = self._ref_series(ref, refs.get(ref), parsed, window)
-            else:
+            elif leaf["name"] == "total":
                 leaves[id(leaf)] = self._total(leaf, refs, parsed, window)
+            else:
+                leaves[id(leaf)] = self._function(leaf, refs, parsed, window)
 
         grid = union_times([t for t, _, _ in leaves.values()])
         columns = dict(zip(leaves, align_onto(list(leaves.values()), grid)))
@@ -288,11 +292,27 @@ class _Computation:
 
     def _total(self, node: Node, refs: Dict[str, Any], parsed: Parsed,
                window: Window) -> Tuple[np.ndarray, np.ndarray, bool]:
-        inner, bounds = total_window(window, node["period"], self.zone, self.now,
-                                     node.get("resolution"))
+        inner, bounds = total_window(window, _period(node), self.zone, self.now,
+                                     node.get("params", {}).get("resolution"))
         t, v, _ = self._series(node["args"][0], refs, parsed, inner)
         edges, sums = sum_periods(t, v, inner.interval_s, bounds)
         return edges, sums, True
+
+    def _function(self, node: Node, refs: Dict[str, Any], parsed: Parsed,
+                  window: Window) -> Tuple[np.ndarray, np.ndarray, bool]:
+        """A library function (indsl): its inputs on one grid, then the call."""
+        spec = find(node["name"])
+        if spec is None or spec.call is None:
+            raise RefError(f'{node["name"]} is not available here', True)
+        parts = [self._series(arg, refs, parsed, window) for arg in node["args"]]
+        grid = union_times([t for t, _, _ in parts])
+        columns = align_onto([(t, v, step) for t, v, step in parts], grid)
+        try:
+            t, v = run_function(spec, [(grid, column) for column in columns],
+                                node.get("params", {}))
+        except RunError as exc:
+            raise RefError(str(exc), True) from None
+        return t, v, spec.step
 
     def _ref_series(self, ref: str, spec: Optional[Dict[str, Any]], parsed: Parsed,
                     window: Window) -> Tuple[np.ndarray, np.ndarray, bool]:
@@ -315,11 +335,26 @@ class _Computation:
         return series[0], series[1], bool(spec.get("step"))
 
 
+def is_series_function(node: Node) -> bool:
+    """A function over a whole series rather than value by value: total, and
+    everything from the library. Its inputs are read over its own window."""
+    if node["k"] != "fn":
+        return False
+    if node["name"] == "total":
+        return True
+    spec = find(node["name"])
+    return bool(spec and spec.call)
+
+
+def _period(node: Node) -> str:
+    return node.get("params", {}).get("period", "day")
+
+
 def _leaves(node: Node) -> Iterator[Node]:
-    """References and totals, not looking inside a total: what is in there is
-    read over the total's own window, not this one."""
+    """References and series functions; what is inside a series function is
+    read over that function's own window, not this one."""
     kind = node["k"]
-    if kind == "ref" or (kind == "fn" and node["name"] == "total"):
+    if kind == "ref" or is_series_function(node):
         yield node
     elif kind == "neg":
         yield from _leaves(node["a"])

@@ -12,6 +12,14 @@ export async function apiSearchTags(q, signal) {
   return await resp.json();
 }
 
+// Every function a formula may call, by group: the palette, the help behind
+// each block, and the rules the browser's own parser checks against.
+export async function apiFunctions() {
+  const resp = await fetch("/api/functions");
+  if (!resp.ok) throw new Error(`function list failed (${resp.status})`);
+  return await resp.json();
+}
+
 // Formula rows, computed on the server: {start, end, points, items} ->
 // {series: {id: {t, v, step}}, errors: {id: {text, hard}}}.
 export async function apiCompute(body, signal) {

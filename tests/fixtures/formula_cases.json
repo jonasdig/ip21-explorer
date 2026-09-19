@@ -124,6 +124,39 @@
    "refs": [
     "FI-104"
    ]
+  },
+  {
+   "text": "=total([A])",
+   "refs": [
+    "A"
+   ]
+  },
+  {
+   "text": "=smooth.sg([TI-101], 61, 3)",
+   "refs": [
+    "TI-101"
+   ]
+  },
+  {
+   "text": "=detect.drift([TI-101], 3d, 4h, 3, both)",
+   "refs": [
+    "TI-101"
+   ]
+  },
+  {
+   "text": "=fluid_dynamics.Re([A], [B], [C], [D])",
+   "refs": [
+    "A",
+    "B",
+    "C",
+    "D"
+   ]
+  },
+  {
+   "text": "=smooth.sg([A]) * 2",
+   "refs": [
+    "A"
+   ]
   }
  ],
  "error": [
@@ -157,11 +190,11 @@
   },
   {
    "text": "=foo([A])",
-   "error": "unknown function \"foo\" - try abs, sqrt, ln, log10, exp, round, min, max, avg, total"
+   "error": "unknown function \"foo\" - the block editor's palette has the ones there are"
   },
   {
    "text": "=abs([A], [B])",
-   "error": "abs() takes one argument"
+   "error": "abs takes 1 input and no settings"
   },
   {
    "text": "=[A] % 2",
@@ -172,20 +205,16 @@
    "error": "unexpected \">\" at 9"
   },
   {
-   "text": "=total([A])",
-   "error": "total() needs a period: hour, day, week, month or year"
-  },
-  {
    "text": "=total([A], days)",
-   "error": "\"days\" is not a period - use hour, day, week, month or year"
+   "error": "total: period must be one of hour, day, week, month, year"
   },
   {
    "text": "=total([A], 3)",
-   "error": "\"3\" is not a period - use hour, day, week, month or year"
+   "error": "total: period must be one of hour, day, week, month, year"
   },
   {
    "text": "=total([A], day, 2)",
-   "error": "\"2\" is not a resolution - use 1min, 5min, 15min, 1h or auto"
+   "error": "total: resolution must be one of auto, 1min, 5min, 15min, 1h"
   },
   {
    "text": "=[A] =< 2",
@@ -193,11 +222,27 @@
   },
   {
    "text": "=total([A], day, 2h)",
-   "error": "\"2h\" is not a resolution - use 1min, 5min, 15min, 1h or auto"
+   "error": "total: resolution must be one of auto, 1min, 5min, 15min, 1h"
   },
   {
    "text": "=total([A], day, )",
-   "error": "nothing is not a resolution - use 1min, 5min, 15min, 1h or auto"
+   "error": "total: resolution must be one of auto, 1min, 5min, 15min, 1h"
+  },
+  {
+   "text": "=smooth.sg([A], both)",
+   "error": "smooth.sg: window_length expects a number, got \"both\""
+  },
+  {
+   "text": "=detect.drift([A], 3d, 4h, 3, sideways)",
+   "error": "detect.drift: detect must be one of decrease, increase, both"
+  },
+  {
+   "text": "=detect.drift([A], 2)",
+   "error": "detect.drift: long_interval expects a duration like 30min, 4h or 3d, got \"2\""
+  },
+  {
+   "text": "=smooth.sg([A], 61, 3, 4)",
+   "error": "smooth.sg takes 1 input and up to 2 settings"
   }
  ]
 }

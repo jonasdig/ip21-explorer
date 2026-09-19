@@ -356,3 +356,18 @@ def test_compute_reuses_what_data_just_read():
 def test_compute_rejects_a_bad_window(client):
     r = client.post("/api/compute", json={"start": END, "end": START, "items": []})
     assert r.status_code == 422
+
+
+def test_functions_endpoint_lists_the_groups(client):
+    body = client.get("/api/functions").json()
+    groups = {g["name"]: g["functions"] for g in body["groups"]}
+    assert list(groups)[0] == "Basic"
+    assert {"Smooth", "Detect", "Resample"} <= set(groups)
+    basic = {f["name"]: f for f in groups["Basic"]}
+    assert basic["avg"]["variadic"] and basic["total"]["step"]
+    assert [p["name"] for p in basic["total"]["params"]] == ["period", "resolution"]
+    sg = next(f for f in groups["Smooth"] if f["name"] == "smooth.sg")
+    assert sg["inputs"] == 1 and sg["short"] and sg["long"]
+    assert sg["params"][0] == {"name": "window_length", "kind": "number", "default": None,
+                               "choices": [], "label": "Window",
+                               "help": sg["params"][0]["help"]}

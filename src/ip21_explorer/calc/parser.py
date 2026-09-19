@@ -9,9 +9,8 @@ the same shapes, as plain dicts:
     {"k": "ref", "ref": "TI-101", "bare": False}
     {"k": "neg", "a": node}
     {"k": "bin", "op": "+", "a": node, "b": node}
-    {"k": "fn", "name": "avg", "args": [node, ...]}
-    {"k": "fn", "name": "total", "args": [node], "period": "day"}
-    {"k": "fn", "name": "total", "args": [node], "period": "day", "resolution": "1h"}
+    {"k": "fn", "name": "avg", "args": [node, ...], "params": {}}
+    {"k": "fn", "name": "total", "args": [node], "params": {"period": "day"}}
 
 Error messages match the browser's word for word, positions included.
 """
@@ -23,31 +22,7 @@ from typing import Any, Dict, List, Optional, Set
 
 Node = Dict[str, Any]
 
-# Functions an expression may call, and whether each takes several arguments.
-# Order matters: it is the order the "unknown function" message lists them in,
-# and the browser's list is in the same order.
-FUNCTIONS: Dict[str, bool] = {
-    "abs": False,
-    "sqrt": False,
-    "ln": False,
-    "log10": False,
-    "exp": False,
-    "round": False,
-    "min": True,
-    "max": True,
-    "avg": True,
-    "total": False,
-}
-
-# total(expression, period): the expression read as a rate per hour, summed
-# over each calendar period. The period is a word, not a tag.
-PERIODS = ("hour", "day", "week", "month", "year")
-PERIOD_LIST = "hour, day, week, month or year"
-# An optional third word: how finely the expression inside is read, as
-# averages over that many seconds. auto (or leaving it out) lets the engine
-# pick the finest a long window allows.
-RESOLUTIONS = {"1min": 60.0, "5min": 300.0, "15min": 900.0, "1h": 3600.0, "auto": None}
-RESOLUTION_LIST = "1min, 5min, 15min, 1h or auto"
+from .catalog import ArgumentError, FunctionSpec, find, read_word
 
 # Comparisons give 1 or 0 and bind loosest of all; two in a row is an error.
 COMPARE = (">=", "<=", ">", "<")
@@ -179,6 +154,34 @@ class _Parser:
             return {"k": "neg", "a": inner} if token.t == "-" else inner
         return self.primary()
 
+    # A call: its inputs as expressions, then one word per setting. Settings
+    # at the end may be left out and keep their defaults.
+    def call(self, spec: FunctionSpec, token: Token) -> Node:
+        args = [self.compare()]
+        while spec.variadic and self.peek() and self.peek().t == ",":
+            self.i += 1
+            args.append(self.compare())
+        while len(args) < spec.inputs:
+            self.eat(",")
+            args.append(self.compare())
+        params: Dict[str, Any] = {}
+        for param in spec.params:
+            if not (self.peek() and self.peek().t == ","):
+                break
+            self.i += 1
+            word = ""
+            while self.peek() and self.peek().t not in (")", ","):
+                word += self.tokens[self.i].v
+                self.i += 1
+            try:
+                params[param.name] = read_word(spec, param, word)
+            except ArgumentError as exc:
+                raise FormulaError(str(exc)) from None
+        if self.peek() and self.peek().t == ",":
+            raise FormulaError(_too_many(spec))
+        self.eat(")")
+        return {"k": "fn", "name": spec.name, "args": args, "params": params}
+
     def primary(self) -> Node:
         token = self.peek()
         if token is None:
@@ -200,51 +203,23 @@ class _Parser:
             # A name followed by "(" is a call; anything else is a tag.
             if following is None or following.t != "(":
                 return {"k": "ref", "ref": token.v, "bare": True}
-            if token.v not in FUNCTIONS:
+            spec = find(token.v)
+            if spec is None:
                 raise FormulaError(
-                    f'unknown function "{token.v}" - try {", ".join(FUNCTIONS)}'
+                    f'unknown function "{token.v}" - the block editor\'s palette '
+                    "has the ones there are"
                 )
             self.i += 1
-            if token.v == "total":
-                return self.total()
-            args = [self.compare()]
-            while self.peek() and self.peek().t == ",":
-                self.i += 1
-                args.append(self.compare())
-            self.eat(")")
-            if len(args) > 1 and not FUNCTIONS[token.v]:
-                raise FormulaError(f"{token.v}() takes one argument")
-            return {"k": "fn", "name": token.v, "args": args}
+            return self.call(spec, token)
         raise FormulaError(f'unexpected "{token.v}" at {token.i + 1}')
 
-    # After "total(": the expression, a comma, a period word, and optionally
-    # a comma and a resolution - which the tokenizer has split into a number
-    # and a name ("1min"), so it is read back as the text of its tokens.
-    def total(self) -> Node:
-        arg = self.compare()
-        comma = self.peek()
-        if comma is None or comma.t != ",":
-            raise FormulaError(f"total() needs a period: {PERIOD_LIST}")
-        self.i += 1
-        word = self.peek()
-        if word is None or word.t != "name" or word.v not in PERIODS:
-            said = f'"{word.v}"' if word else "nothing"
-            raise FormulaError(f"{said} is not a period - use {PERIOD_LIST}")
-        self.i += 1
-        node = {"k": "fn", "name": "total", "args": [arg], "period": word.v}
-        if self.peek() and self.peek().t == ",":
-            self.i += 1
-            said = ""
-            while self.peek() and self.peek().t not in (")", ","):
-                said += self.tokens[self.i].v
-                self.i += 1
-            if said not in RESOLUTIONS:
-                shown = f'"{said}"' if said else "nothing"
-                raise FormulaError(f"{shown} is not a resolution - use {RESOLUTION_LIST}")
-            if said != "auto":
-                node["resolution"] = said
-        self.eat(")")
-        return node
+def _too_many(spec: FunctionSpec) -> str:
+    inputs = "any number of inputs" if spec.variadic else (
+        "1 input" if spec.inputs == 1 else f"{spec.inputs} inputs")
+    if not spec.params:
+        return f"{spec.name} takes {inputs} and no settings"
+    settings = "1 setting" if len(spec.params) == 1 else f"{len(spec.params)} settings"
+    return f"{spec.name} takes {inputs} and up to {settings}"
 
 
 def _collect_refs(node: Node, out: List[str], bare: Set[str]) -> None:

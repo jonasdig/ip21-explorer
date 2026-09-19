@@ -1,0 +1,17 @@
+IP21 Explorer
+Copyright (c) 2026 Jonas Digernes
+
+This product includes software developed by Cognite AS:
+
+  InDSL (https://github.com/cognitedata/indsl)
+  Copyright 2023 Cognite AS
+  Licensed under the Apache License, Version 2.0
+  http://www.apache.org/licenses/LICENSE-2.0
+
+The functions in the formula editor's library groups - Smooth, Filter,
+Detect, Statistics, Resample, Operators and the rest - are InDSL's, called
+through src/ip21_explorer/calc/.
+
+uPlot (https://github.com/leeoniya/uPlot), vendored under
+src/ip21_explorer/static/vendor/, is Copyright (c) 2022 Leon Sorokin, MIT
+licensed.

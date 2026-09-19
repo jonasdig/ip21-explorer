@@ -806,6 +806,41 @@ dialog h3 { margin: 0 0 10px 0; }
 }
 #formula-editor .fe-node.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 #formula-editor .fe-node.helping { z-index: 5; }
+/* The palette's library groups, and the settings on a function block. */
+#formula-editor .fe-group > summary {
+  cursor: pointer;
+  padding: 3px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+#formula-editor .fe-group > summary:hover { color: var(--text); }
+#formula-editor .fe-group[open] > summary { color: var(--text); }
+#formula-editor .fe-param {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  font-size: 10px;
+  color: var(--muted);
+}
+#formula-editor .fe-param .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#formula-editor .fe-param input[type="text"], #formula-editor .fe-param select {
+  width: 74px;
+  font-size: 11px;
+  height: 20px;
+  padding: 0 3px;
+}
+#formula-editor .fe-param.bad input { color: #e57373; border-color: #e57373; }
+#formula-editor .fe-node.fn { min-width: 150px; }
+
 #formula-editor .fe-node .head .help {
   border: none; background: none; padding: 0 3px; color: var(--muted); height: auto;
   font-size: 11px; font-weight: 700;
