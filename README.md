@@ -170,6 +170,8 @@ range or sampling changes, with stale requests cancelled.
 
 ## Installation
 
+Python 3.9 or newer; tested on 3.9 and 3.13.
+
 ```bash
 git clone https://github.com/jonasdig/ip21-explorer.git
 cd ip21-explorer
