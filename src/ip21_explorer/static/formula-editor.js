@@ -483,14 +483,41 @@ function beginWire(e, fromId) {
   document.addEventListener("pointerup", up);
 }
 
-// Grabbing a wired input picks its wire up again, to move it or drop it.
+// Grabbing a wired input picks its wire up again, to move it or drop it; an
+// empty one starts a wire the other way, to be dropped on an output.
 function pickUpWire(e, node, port) {
   const wire = session.graph.wires.find((w) => w.to === node.id && w.port === port);
-  if (!wire) { e.stopPropagation(); return; }
+  if (!wire) { beginWireFromInput(e, node, port); return; }
   session.graph.wires = session.graph.wires.filter((w) => w !== wire);
   compactPorts(node);
   render();
   beginWire(e, wire.from);
+}
+
+function beginWireFromInput(e, node, port) {
+  e.preventDefault();
+  e.stopPropagation();
+  const b = portPoint(node.id, "in", port);
+  const world = () => shell.world.getBoundingClientRect();
+  const move = (ev) => {
+    const w = world();
+    renderWires({ a: { x: ev.clientX - w.left, y: ev.clientY - w.top }, b });
+  };
+  const up = (ev) => {
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", up);
+    const target = document.elementFromPoint(ev.clientX, ev.clientY);
+    const dot = target && target.closest(".port.out");
+    const fromId = dot && dot.closest(".fe-node").dataset.id;
+    if (fromId && fromId !== node.id) {
+      session.graph.wires = session.graph.wires.filter(
+        (w) => !(w.to === node.id && w.port === port));
+      session.graph.wires.push({ from: fromId, to: node.id, port });
+    }
+    render();
+  };
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", up);
 }
 
 // A variadic block keeps its inputs packed, so taking one out of the middle
