@@ -79,8 +79,8 @@ function pairUp(r, x, y) {
   const rx = r.raw[x.uid], ry = r.raw[y.uid];
   if (!rx || !ry) return null;
   const inputs = [
-    { t: rx.t, v: rx.v, step: !!x.step },
-    { t: ry.t, v: ry.v, step: !!y.step },
+    { t: rx.t, v: rx.v, step: !!x.step || !!rx.step },
+    { t: ry.t, v: ry.v, step: !!y.step || !!ry.step },
   ];
   const ts = unionTimes(inputs.map((input) => input.t));
   const [xv, yv] = alignOnto(inputs, ts);

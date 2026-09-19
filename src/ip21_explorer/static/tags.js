@@ -5,9 +5,9 @@ import {
   apiGetDescription, apiGetMaps, apiGetUnit, ensureFavorites, orderedMaps,
 } from "./api.js";
 import { renderChart } from "./chart.js";
-import { isComputed, recompute } from "./computed.js";
+import { isComputed } from "./computed.js";
 import { PALETTE } from "./constants.js";
-import { loadData, rebuildJoined } from "./data.js";
+import { loadData, rebuildJoined, recomputeFormulas } from "./data.js";
 import { ensureNavData, renderNavigator } from "./navigator.js";
 import { positionScooters } from "./scooters.js";
 import {
@@ -226,11 +226,10 @@ export function removeTags(tab, uids) {
   const r = rt(tab);
   if (r.raw) { // drop locally, no refetch needed
     for (const tag of gone) delete r.raw[tag.uid];
-    // A formula that used one of them now refers to a tag with no row: it is
-    // fetched on its own from here on, which does need a request.
-    const local = recompute(tab, r);
+    // A formula that used one of them now refers to a tag with no row, which
+    // the server reads on its own from here on.
     rebuildJoined(tab, r);
-    if (!local) loadData(tab);
+    if (tab.tags.some(isComputed)) recomputeFormulas(tab);
   }
   renderChart();
   renderNavigator();
@@ -277,8 +276,8 @@ export function moveTag(tab, from, to) {
   // column - every trace showing the wrong tag's data.
   // Row order decides which row a bare reference in a formula resolves to,
   // so the values can change even though nothing was fetched.
-  recompute(tab, rt(tab));
   rebuildJoined(tab, rt(tab));
+  if (tab.tags.some(isComputed)) recomputeFormulas(tab);
   renderTags();
   renderChart();
   // gridTag() and navTag() fall back to the first tag when axisUid does not
@@ -293,7 +292,7 @@ export function moveTag(tab, from, to) {
 // colour and scale only redraw, while sampling, interval and map mean a new
 // request to the historian.
 export function setTagFields(tab, tag, patch) {
-  let redraw = false, refetch = false, live = false, nav = false;
+  let redraw = false, refetch = false, recalc = false, live = false, nav = false;
   for (const [key, value] of Object.entries(patch)) {
     if (key === "visible") {
       tag.visible = value !== false;
@@ -309,7 +308,7 @@ export function setTagFields(tab, tag, patch) {
       tag.step = !!value;
       // Stepped means "hold the last value", which is also how a formula must
       // read this tag between its samples.
-      if (recompute(tab, rt(tab))) rebuildJoined(tab, rt(tab));
+      if (tab.tags.some(isComputed)) recalc = true;
       redraw = true;
     } else if (key === "min" || key === "max") {
       tag[key] = Number.isFinite(value) ? value : null;
@@ -368,11 +367,11 @@ export function setTagFields(tab, tag, patch) {
       const r = rt(tab);
       if (r.raw) {
         delete r.raw[tag.uid];
-        // An edited formula over tags already in hand is arithmetic, not a
-        // reason to make the historian repeat itself.
-        if (isComputed(tag) && recompute(tab, r)) {
+        // An edited formula is computed again over the window in hand; the
+        // server has the tags it needs cached, or reads the new ones.
+        if (isComputed(tag)) {
           rebuildJoined(tab, r);
-          redraw = true;
+          redraw = recalc = true;
           continue;
         }
         rebuildJoined(tab, r);
@@ -398,6 +397,7 @@ export function setTagFields(tab, tag, patch) {
   // flickering.
   if (redraw) renderChart();
   if (refetch) loadData(tab);
+  else if (recalc) recomputeFormulas(tab);
   if (nav) renderNavigator();
   saveState();
 }

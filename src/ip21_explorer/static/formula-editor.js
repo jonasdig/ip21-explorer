@@ -6,15 +6,16 @@
    that already exists. The graph itself is kept on the row only so that the
    blocks come back where they were left. */
 
-import { apiFetchSeries, apiSearchTags } from "./api.js";
+import { apiSearchTags } from "./api.js";
 import { xAxisValues } from "./chart.js";
-import { isComputed, previewFormula, refSampler } from "./computed.js";
+import { isComputed, previewFormulas } from "./computed.js";
 import { MIN_QUERY_LEN, SEARCH_DEBOUNCE_MS } from "./constants.js";
 import { FUNCTION_NAMES } from "./formula.js";
 import {
-  emptyGraph, evalGraphAt, graphFromText, inputPorts, isVariadic, layoutGraph,
+  emptyGraph, graphFromText, inputPorts, isVariadic, layoutGraph,
   newNode, nodeLabel, textFromGraph,
 } from "./formula-graph.js";
+import { medianStep, sampleAt } from "./resample.js";
 import { makeTag, reqName, rt, saveState } from "./state.js";
 import { insertTags, setTagFields, tagLabel } from "./tags.js";
 import { resolveRange } from "./timerange.js";
@@ -53,10 +54,8 @@ export function openFormulaEditor(tab, tag, seed) {
   }
   session = { tab, tag: tag && isComputed(tag) ? tag : null, graph, pan: { x: 0, y: 0 },
     selected: null, preview: null, previewId: "out",
-    // Series fetched here for tags nothing has loaded yet, so the preview can
-    // show them before Apply; and the ones the server turned down.
-    fetched: new Map(), failed: new Map(), pending: new Set(),
-    abort: new AbortController() };
+    // The preview's request to the server, replaced by each newer one.
+    abort: null, previewSeq: 0 };
   shell.title.textContent = session.tag
     ? `Formula: ${tagLabel(tab, session.tag)}` : "New formula";
   fillRows();
@@ -157,7 +156,7 @@ function buildShell() {
     // it must not tear down the new session's preview.
     if (dialog.open) return;
     if (session && session.preview) { session.preview.destroy(); session.preview = null; }
-    if (session) session.abort.abort();
+    if (session && session.abort) session.abort.abort();
   });
 
   text.addEventListener("keydown", (e) => {
@@ -583,62 +582,73 @@ function previewName() {
   return nodeLabel(node);
 }
 
-// Fetches the references the preview lacks, over the tab's window and with
-// the sampling Apply would use, then draws the preview again. A reference the
-// server refuses is remembered, not asked for again.
-function fetchMissing(refs) {
-  const want = refs.filter((ref) => !session.pending.has(ref) && !session.failed.has(ref));
-  if (!want.length) return;
-  const current = session;
-  const source = current.tag || makeTag({ name: "=" });
-  const { start, end } = resolveRange(current.tab);
+// The window the preview covers: what the tab has loaded, so the server finds
+// its tags cached, or the tab's range when nothing is loaded yet.
+function previewWindow(tab) {
+  const r = rt(tab);
+  if (r.raw && r.start != null) return { start: r.start, end: r.end, points: r.points || 1500 };
+  const { start, end } = resolveRange(tab);
   const width = $("chart-wrap").clientWidth || 1200;
-  const points = Math.max(300, Math.min(4000, Math.round(width * 1.2)));
-  for (const ref of want) current.pending.add(ref);
-  // One request per tag: a misspelt one must not take the others down with it.
-  for (const ref of want) {
-    apiFetchSeries([ref], { start, end, sample: source.sample, interval: source.interval, points },
-      current.abort.signal)
-      .then((series) => {
-        if (series[ref]) current.fetched.set(ref, series[ref]);
-        else current.failed.set(ref, "no data");
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError") current.failed.set(ref, err.message);
-      })
-      .finally(() => {
-        current.pending.delete(ref);
-        if (session === current && shell.dialog.open) renderPreview();
-      });
-  }
+  return { start, end, points: Math.max(300, Math.min(4000, Math.round(width * 1.2))) };
 }
 
-function renderPreview() {
+// Asks the server for the previewed block and for every block that is wired
+// up, in one request: the first draws the trend, the rest give each block its
+// value under the cursor. The old chart stays until the answer is in.
+async function renderPreview() {
+  const current = session;
+  const seq = ++current.previewSeq;
+  if (current.abort) current.abort.abort();
+  current.abort = new AbortController();
+
+  const name = previewName();
+  const { text, errors } = textFromGraph(current.graph, current.previewId);
+  const blocks = new Map();   // node id -> its text
+  for (const node of current.graph.nodes) {
+    if (node.type === "num") continue;
+    const own = textFromGraph(current.graph, node.id);
+    if (!own.errors.length) blocks.set(node.id, own.text);
+  }
+  let results = new Map();
+  let failure = null;
+  if (!errors.length) {
+    const { start, end, points } = previewWindow(current.tab);
+    const texts = [...new Set([text, ...blocks.values()])];
+    try {
+      results = await previewFormulas(current.tab, current.tag, texts, start, end, points,
+        current.abort.signal);
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      failure = err.message;
+    }
+  }
+  if (session !== current || seq !== current.previewSeq || !shell.dialog.open) return;
+  drawPreview(name, errors.length ? null : text, results, blocks, failure);
+}
+
+function drawPreview(name, text, results, blocks, failure) {
   const box = shell.preview;
   if (session.preview) { session.preview.destroy(); session.preview = null; }
   box.innerHTML = "";
-  const name = previewName();
   const head = el("div", "fe-preview-head", `Preview: ${name}`);
   box.appendChild(head);
   const note = (message) => box.appendChild(el("div", "fe-none", message));
-  const { text, errors } = textFromGraph(session.graph, session.previewId);
-  if (errors.length) { note(`No preview until ${name} is complete.`); return; }
-  const r = rt(session.tab);
-  const result = previewFormula(session.tab, r, text, session.fetched);
-  if (result.error) { note(result.error); return; }
-  if (result.missing) {
-    const failed = result.missing.filter((ref) => session.failed.has(ref));
-    if (failed.length) {
-      note(failed.map((ref) => `${ref}: ${session.failed.get(ref)}`).join("; "));
-      return;
-    }
-    note(`Loading ${result.missing.join(", ")}…`);
-    fetchMissing(result.missing);
-    return;
-  }
+  if (!text) { note(`No preview until ${name} is complete.`); return; }
+  if (failure) { note(failure); return; }
+  const result = results.get(text);
+  if (!result || result.error) { note(result ? result.error : "no data"); return; }
+
   const readout = el("span", "fe-readout");
   head.appendChild(readout);
-  const sampler = refSampler(session.tab, r, session.fetched);
+  // Each block read at the cursor the way the server reads a series: along
+  // its own samples, held when stepped, nothing across a hole.
+  const readers = new Map();
+  for (const [id, own] of blocks) {
+    const series = results.get(own);
+    if (!series || series.error || !series.t.length) continue;
+    const gap = 3 * medianStep(series.t);
+    readers.set(id, (t) => sampleAt(series.t, series.v, t, !!series.step, gap));
+  }
   const width = Math.max(200, box.clientWidth - 8);
   session.preview = new uPlot({
     width,
@@ -653,7 +663,8 @@ function renderPreview() {
       { stroke: "#8b93a3", grid: { stroke: "#232834" }, ticks: { stroke: "#2e3442" }, size: 48,
         space: 22 },
     ],
-    series: [{}, { stroke: "#4fc3f7", width: 1.4, spanGaps: true, points: { show: false } }],
+    series: [{}, { stroke: "#4fc3f7", width: 1.4, spanGaps: true, points: { show: false },
+      paths: result.step ? uPlot.paths.stepped({ align: 1 }) : undefined }],
     cursor: { drag: { x: false, y: false }, points: { size: 6 } },
     hooks: {
       // Under the cursor, every block shows what it amounts to at that moment:
@@ -661,13 +672,14 @@ function renderPreview() {
       setCursor: [(u) => {
         const idx = u.cursor.idx;
         const t = idx == null ? null : u.data[0][idx];
-        const values = t == null ? new Map()
-          : evalGraphAt(session.graph, (ref) => sampler(ref, t));
         readout.textContent = t == null ? "" : `${fmtTime(t, true)}   ${fmtVal(u.data[1][idx])}`;
-        for (const node of shell.nodes.querySelectorAll(".fe-node")) {
-          const v = values.get(node.dataset.id);
-          node.querySelector(".val").textContent =
-            t == null || v === undefined ? "" : fmtVal(v);
+        for (const box of shell.nodes.querySelectorAll(".fe-node")) {
+          const node = session.graph.nodes.find((n) => n.id === box.dataset.id);
+          let v;
+          if (t == null || !node) v = undefined;
+          else if (node.type === "num") v = Number(node.value);
+          else if (readers.has(node.id)) v = readers.get(node.id)(t);
+          box.querySelector(".val").textContent = v === undefined ? "" : fmtVal(v);
         }
       }],
     },

@@ -1,7 +1,7 @@
 /* Fetching trend data for a tab and joining it into uPlot's format. */
 
 import { renderChart } from "./chart.js";
-import { computeInto, computedPlan, isComputed } from "./computed.js";
+import { applyComputed, fetchComputed, isComputed } from "./computed.js";
 import { ensureNavData } from "./navigator.js";
 import { reqName, rt, state } from "./state.js";
 import { ensureDescriptions, ensureUnits, renderTags } from "./tags.js";
@@ -26,16 +26,11 @@ export async function loadData(tab) {
   const width = $("chart-wrap").clientWidth || 1200;
   const points = Math.max(300, Math.min(4000, Math.round(width * 1.2)));
 
-  // What actually has to be fetched: the plain rows, plus the tags a formula
-  // refers to that have no row of their own. Formula rows themselves are
-  // computed from the answers, further down.
-  const plan = computedPlan(tab);
-  const items = [
-    ...tab.tags.filter((tag) => !isComputed(tag)).map((tag) => ({
-      id: tag.uid, req: reqName(tag), sample: tag.sample, interval: tag.interval, tag,
-    })),
-    ...plan.operands,
-  ];
+  // The plain rows are fetched here; formula rows are computed by the server
+  // afterwards, from the same reads (it keeps them for a while).
+  const items = tab.tags.filter((tag) => !isComputed(tag)).map((tag) => ({
+    id: tag.uid, req: reqName(tag), sample: tag.sample, interval: tag.interval, tag,
+  }));
 
   // Sample type and interval are individual per tag: fetch one request per
   // distinct (sample, interval) group, in parallel.
@@ -82,7 +77,18 @@ export async function loadData(tab) {
       })
     );
     if (seq !== r.seq) return; // superseded by a newer request
-    const { first, failures } = markTagErrors(results);
+    const first = markTagErrors(results);
+    // After the plain reads, so the server finds them in its cache. Planned
+    // now rather than at the start, so an edit made while the tags were on
+    // their way is what gets computed.
+    let computed = null, computeError = null;
+    try {
+      computed = await fetchComputed(tab, start, end, points, r.abort.signal);
+    } catch (err) {
+      if (err.name === "AbortError") throw err;
+      computeError = err.message;
+    }
+    if (seq !== r.seq) return;
 
     // Keyed by tag.uid, so groups can never overwrite each other's entries.
     r.raw = Object.assign({}, ...results.map((g) => g.series));
@@ -92,9 +98,10 @@ export async function loadData(tab) {
     // until at least one new plot bucket can exist.
     const intervals = results.map((g) => g.intervalS).filter((i) => i > 0);
     r.intervalS = intervals.length ? Math.min(...intervals) : null;
-    computeInto(tab, r, plan, failures);
+    r.points = points;
+    if (computed) applyComputed(tab, r, computed.plan, computed.answer);
     rebuildJoined(tab, r);
-    showError(first);
+    showError(first || computeError);
     if (tab.id === state.activeTabId) { renderTags(); renderChart(); }
   } catch (err) {
     if (err.name === "AbortError") return;
@@ -117,11 +124,10 @@ export async function loadData(tab) {
 // the historian named in its complaint, if any: the rest of the group lost
 // their data for this round without having done anything wrong.
 //
-// Formula rows are in no group and so are never seen here; what happens to
-// them is decided in computeInto(), from the failures map this returns.
+// Formula rows are in no group and so are never seen here: the server says
+// what happened to each of them. Returns the first failure, for the banner.
 function markTagErrors(results) {
   let first = null;
-  const failures = new Map();
   for (const group of results) {
     const blamed = group.error
       ? group.items.filter((item) => group.error.includes(item.req))
@@ -139,11 +145,33 @@ function markTagErrors(results) {
       } else if (!group.series[item.id]) {
         note = { text: "no data in this window", hard: false };
       }
-      if (item.tag) item.tag._error = note;
-      else if (note) failures.set(item.id, note);
+      item.tag._error = note;
     }
   }
-  return { first, failures };
+  return first;
+}
+
+// Formula rows again, over the window already loaded, after an edit that
+// changes what they compute but not which tags the plot shows: a formula
+// typed or changed, a row moved or removed, a tag made stepped. The tags come
+// out of the server's cache, so this does not reach the historian.
+export async function recomputeFormulas(tab) {
+  const r = rt(tab);
+  if (!r.raw || r.start == null) return;
+  // A fetch under way computes the formulas itself when it lands.
+  if (r.inFlight) return;
+  const seq = r.formulaSeq = (r.formulaSeq || 0) + 1;
+  let computed;
+  try {
+    computed = await fetchComputed(tab, r.start, r.end, r.points || 1500);
+  } catch (err) {
+    if (tab.id === state.activeTabId) showError(err.message);
+    return;
+  }
+  if (seq !== r.formulaSeq || r.inFlight) return;
+  applyComputed(tab, r, computed.plan, computed.answer);
+  rebuildJoined(tab, r);
+  if (tab.id === state.activeTabId) { renderTags(); renderChart(); }
 }
 
 export function rebuildJoined(tab, r) {

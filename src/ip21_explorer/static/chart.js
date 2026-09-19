@@ -106,7 +106,8 @@ function makeOpts(tab, r) {
       // Step rendering holds the previous value until the next sample,
       // which is the honest shape for discrete/status tags.
       paths: noLine ? () => null
-        : tag.step ? uPlot.paths.stepped({ align: 1 }) : undefined,
+        // A formula over periods (a daily total) comes back stepped too.
+        : tag.step || r.raw[uid].step ? uPlot.paths.stepped({ align: 1 }) : undefined,
     });
   }
 

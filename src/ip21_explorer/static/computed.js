@@ -1,12 +1,15 @@
-/* Formula rows: turning "=[TI-101] - [TI-201]" into a series.
+/* Formula rows: what "=[TI-101] - [TI-201]" refers to, and asking the server
+   to compute it.
 
-   A row whose name starts with "=" is never asked of the historian. Its
-   references are resolved against the other rows; a reference that is not a
-   row is fetched quietly alongside them and never gets a row of its own, so a
-   difference between two tags costs one row, not three. */
+   A row whose name starts with "=" is never asked of the historian as a tag.
+   Its references are resolved here, against the other rows, because what a
+   name means depends on this table; the server (calc/ in Python) reads the
+   tags and does the arithmetic. A reference that is not a row is read there
+   quietly and never gets a row of its own, so a difference between two tags
+   costs one row, not three. */
 
-import { evalNode, isFormula, parseFormula, resolveHint } from "./formula.js";
-import { alignOnto, medianStep, sampleAt, unionTimes } from "./resample.js";
+import { apiCompute } from "./api.js";
+import { isFormula, parseFormula } from "./formula.js";
 import { reqName } from "./state.js";
 
 export function isComputed(tag) { return isFormula(tag.name); }
@@ -72,17 +75,33 @@ function orderRows(rows, plan) {
   return out;
 }
 
-// Everything one load needs to know about the tab's formulas: the parsed
-// expressions, where each reference comes from, the order to compute them in,
-// and the references that have to be fetched because they are not rows.
+// What a reference means to the server: a row's tag with the row's own
+// sampling, another formula row by id, or - not on the plot - the bare tag,
+// read with the owning formula's Type and Period, which is what those two
+// cells mean on a formula row.
+function refSpec(tab, ref, owner) {
+  const row = findRow(tab, ref);
+  if (row && owner && row === owner) return { error: "a formula cannot use itself" };
+  if (row && isComputed(row)) return { spec: { formula: row.uid }, row };
+  if (row) {
+    return { spec: { tag: reqName(row), sample: row.sample, interval: row.interval,
+                     step: !!row.step }, row };
+  }
+  const sample = owner ? owner.sample : "INT";
+  const interval = owner ? owner.interval : "auto";
+  return { spec: { tag: ref, sample, interval, step: false } };
+}
+
+// Everything one computation needs: every formula row parsed, where each of
+// its references comes from, and the items to send - in dependency order,
+// without the rows that cannot be computed (a typo, a cycle).
 export function computedPlan(tab) {
-  const plan = { entries: new Map(), order: [], operands: [] };
+  const plan = { entries: new Map(), order: [], items: [] };
   const rows = tab.tags.filter(isComputed);
   if (!rows.length) return plan;
 
-  const operands = new Map();
   for (const tag of rows) {
-    const entry = { tag, parsed: null, error: null, sources: new Map() };
+    const entry = { tag, parsed: null, error: null, sources: new Map(), refs: {} };
     plan.entries.set(tag.uid, entry);
     try {
       entry.parsed = parseFormula(tag.name);
@@ -91,142 +110,78 @@ export function computedPlan(tab) {
       continue;
     }
     for (const ref of entry.parsed.refs) {
-      const row = findRow(tab, ref);
-      if (row && row !== tag) { entry.sources.set(ref, { id: row.uid, tag: row }); continue; }
-      if (row === tag) { entry.error = "a formula cannot use itself"; break; }
-      // Not on the plot: fetched with this row's own Type and Period, which is
-      // what those two cells mean on a formula row.
-      const id = `#op:${ref}|${tag.sample}|${tag.interval}`;
-      if (!operands.has(id)) {
-        operands.set(id, { id, req: ref, sample: tag.sample, interval: tag.interval });
-      }
-      entry.sources.set(ref, { id, ref });
+      const found = refSpec(tab, ref, tag);
+      if (found.error) { entry.error = found.error; break; }
+      entry.refs[ref] = found.spec;
+      entry.sources.set(ref, { tag: found.row || null });
     }
   }
-  plan.operands = [...operands.values()];
   plan.order = orderRows(rows, plan);
+  plan.items = plan.order.map((tag) => ({
+    id: tag.uid, expr: tag.name, refs: plan.entries.get(tag.uid).refs,
+  }));
   return plan;
 }
 
-// Recomputes from data already in hand, when nothing new has to be fetched.
-// Editing a formula over tags that are already loaded is arithmetic, not a
-// reason to make the historian repeat itself. False means a fetch is needed.
-export function recompute(tab, r) {
-  if (!r || !r.raw) return false;
-  const plan = computedPlan(tab);
-  if (plan.operands.some((op) => !r.raw[op.id])) return false;
-  computeInto(tab, r, plan, null);
-  return true;
-}
-
-// Writes r.raw[uid] for every formula row that can be computed, and an error
-// on every one that cannot. Runs after the fetch has filled r.raw and before
-// rebuildJoined, so everything downstream - chart, hover box, scooters, CSV,
-// the stacked gutter - sees a formula exactly as it sees a tag.
-// failures maps a fetch id to the message that came back for it.
-export function computeInto(tab, r, plan, failures) {
+// Writes r.raw[uid] for every formula row the server could compute, and an
+// error on every one that it, or the plan, could not. Everything downstream -
+// chart, hover box, scooters, CSV, the stacked gutter - then sees a formula
+// exactly as it sees a tag.
+export function applyComputed(tab, r, plan, answer) {
   for (const entry of plan.entries.values()) {
-    if (entry.error && entry.error !== "circular") {
-      setError(entry.tag, entry.error, true);
-    }
+    if (entry.error && entry.error !== "circular") setError(entry.tag, entry.error, true);
     if (entry.error) delete r.raw[entry.tag.uid];
   }
-
   for (const tag of plan.order) {
-    const entry = plan.entries.get(tag.uid);
-    const inputs = [];
-    let stop = null;
-    for (const ref of entry.parsed.refs) {
-      const source = entry.sources.get(ref);
-      const hint = resolveHint(ref, entry.parsed.bare.has(ref));
-      const failed = failures && failures.get(source.id);
-      if (failed) {
-        // The historian's own words usually name the tag already.
-        const said = failed.text.includes(ref) ? failed.text : `${ref}: ${failed.text}`;
-        stop = { text: said + hint, hard: failed.hard };
-        break;
-      }
-      const raw = r.raw[source.id];
-      if (!raw || !raw.t.length) {
-        stop = { text: `${ref} has no data in this window${hint}`, hard: false };
-        break;
-      }
-      inputs.push({ t: raw.t, v: raw.v, step: !!(source.tag && source.tag.step) });
-    }
-    if (stop) {
-      setError(tag, stop.text, stop.hard);
-      delete r.raw[tag.uid];
-      continue;
-    }
-
-    const ts = unionTimes(inputs.map((input) => input.t));
-    const cols = alignOnto(inputs, ts);
-    const row = new Array(cols.length);
-    const index = new Map(entry.parsed.refs.map((ref, i) => [ref, i]));
-    const at = (ref) => row[index.get(ref)];
-    const vs = new Array(ts.length);
-    for (let i = 0; i < ts.length; i++) {
-      for (let k = 0; k < cols.length; k++) row[k] = cols[k][i];
-      vs[i] = evalNode(entry.parsed.node, at);
-    }
-    r.raw[tag.uid] = { t: ts, v: vs };
+    const series = answer.series[tag.uid];
+    const error = answer.errors[tag.uid];
+    if (series) r.raw[tag.uid] = series;
+    else delete r.raw[tag.uid];
     // A formula that comes right again has to lose its red: nothing else
     // clears an error a formula set on itself.
-    tag._error = vs.some((v) => v != null)
-      ? null : { text: "no result in this window", hard: false };
+    tag._error = error ? { text: error.text, hard: !!error.hard } : null;
   }
+}
+
+// Asks the server for the tab's formula rows over [start, end]. Returns the
+// plan and the answer, for applyComputed; nothing is changed here.
+export async function fetchComputed(tab, start, end, points, signal) {
+  const plan = computedPlan(tab);
+  if (!plan.items.length) return { plan, answer: { series: {}, errors: {} } };
+  const answer = await apiCompute({ start, end, points, items: plan.items }, signal);
+  return { plan, answer };
 }
 
 // -- preview, for the block editor ------------------------------------------
 
-// A reference's series among what is already loaded: a row's own, one a
-// formula fetched quietly, or one the editor fetched for its preview (extra,
-// a Map of ref -> {t, v}).
-function loadedSeries(tab, r, ref, extra) {
-  const row = findRow(tab, ref);
-  const step = !!(row && row.step);
-  if (row && r && r.raw && r.raw[row.uid]) return { raw: r.raw[row.uid], step };
-  const key = !row && r && r.raw && Object.keys(r.raw).find((k) => k.startsWith(`#op:${ref}|`));
-  if (key) return { raw: r.raw[key], step };
-  return extra && extra.has(ref) ? { raw: extra.get(ref), step } : null;
-}
-
-// Reads any reference at any time from loaded data, the same way the formula
-// itself is computed: interpolated, held for a stepped tag, nothing across a
-// hole. For the per-block values under the preview cursor.
-export function refSampler(tab, r, extra) {
-  const cache = new Map();
-  return (ref, t) => {
-    if (!cache.has(ref)) {
-      const found = loadedSeries(tab, r, ref, extra);
-      cache.set(ref, found && { ...found, gap: 3 * medianStep(found.raw.t) });
+// Series for several expressions at once - the block editor's preview and
+// every block under it - over the window the tab has loaded, so the tags it
+// has read come out of the server's cache. owner is the formula row being
+// edited, if any: its Type and Period, and it may not use itself.
+// Returns a Map of text -> {t, v, step} or {error}.
+export async function previewFormulas(tab, owner, texts, start, end, points, signal) {
+  const out = new Map();
+  const items = [];
+  texts.forEach((text, i) => {
+    let parsed;
+    try { parsed = parseFormula(text); } catch (err) { out.set(text, { error: err.message }); return; }
+    const refs = {};
+    for (const ref of parsed.refs) {
+      const found = refSpec(tab, ref, owner);
+      if (found.error) { out.set(text, { error: found.error }); return; }
+      refs[ref] = found.spec;
     }
-    const s = cache.get(ref);
-    return s ? sampleAt(s.raw.t, s.raw.v, t, s.step, s.gap) : null;
-  };
-}
-
-// The series a formula would produce, from what is loaded now: {t, v}, or
-// {missing} naming the references that are not loaded yet, or {error}.
-export function previewFormula(tab, r, text, extra) {
-  let parsed;
-  try { parsed = parseFormula(text); } catch (err) { return { error: err.message }; }
-  const inputs = [], missing = [];
-  for (const ref of parsed.refs) {
-    const found = loadedSeries(tab, r, ref, extra);
-    if (!found || !found.raw.t.length) missing.push(ref);
-    else inputs.push({ t: found.raw.t, v: found.raw.v, step: found.step });
+    items.push({ id: `p${i}`, expr: text, refs });
+  });
+  if (!items.length) return out;
+  // Formula rows the previewed text refers to are computed alongside it.
+  const plan = computedPlan(tab);
+  const answer = await apiCompute(
+    { start, end, points, items: plan.items.concat(items) }, signal);
+  for (const item of items) {
+    const error = answer.errors[item.id];
+    const series = answer.series[item.id];
+    out.set(item.expr, series && !(error && error.hard) ? series : { error: error ? error.text : "no data" });
   }
-  if (missing.length) return { missing };
-  const ts = unionTimes(inputs.map((input) => input.t));
-  const cols = alignOnto(inputs, ts);
-  const index = new Map(parsed.refs.map((ref, i) => [ref, i]));
-  const row = new Array(cols.length);
-  const at = (ref) => row[index.get(ref)];
-  const vs = new Array(ts.length);
-  for (let i = 0; i < ts.length; i++) {
-    for (let k = 0; k < cols.length; k++) row[k] = cols[k][i];
-    vs[i] = evalNode(parsed.node, at);
-  }
-  return { t: ts, v: vs };
+  return out;
 }

@@ -6,7 +6,6 @@ import { chart, chartSize, renderChart } from "./chart.js";
 import { computedPlan } from "./computed.js";
 import { loadData } from "./data.js";
 import { parseFormula } from "./formula.js";
-import { alignOnto, sampleAt, unionTimes } from "./resample.js";
 import { hideContextMenu } from "./menu.js";
 import { initNavigator, renderNavigator } from "./navigator.js";
 import { initDialogs } from "./plots.js";
@@ -77,7 +76,8 @@ window.ip21 = {
   get chart() { return chart; },
   activeTab, rt, byUid, makeTag, renderAll, loadData, apiSearchTags,
   insertTags, removeTags, setTagFields, moveTag,
-  // The formula pieces are pure functions: worth being able to try one
-  // straight from the console without a row and a fetch behind it.
-  parseFormula, computedPlan, sampleAt, alignOnto, unionTimes,
+  // The formula parser is a pure function: worth being able to try one
+  // straight from the console (and to check it against
+  // tests/fixtures/formula_cases.json) without a row and a fetch behind it.
+  parseFormula, computedPlan,
 };

@@ -1,5 +1,9 @@
-/* Formula rows: "=[TI-101] - [TI-201]" read into a tree, then evaluated one
-   timestamp at a time.
+/* Formula rows: "=[TI-101] - [TI-201]" read into a tree.
+
+   The browser reads formulas to draw them as blocks, to know which tags they
+   use, and to say what is wrong with one while it is being typed. Computing
+   them is the server's job (calc/ in Python), which reads the same grammar:
+   tests/fixtures/formula_cases.json holds both parsers to the same answers.
 
    Hand-written rather than eval(): the text comes from a field the user is
    still typing in, so half an expression has to come back as a message with a
@@ -10,33 +14,21 @@ export function isFormula(name) {
   return typeof name === "string" && name.trimStart().startsWith("=");
 }
 
-// Functions an expression may call, over already-evaluated arguments. The
-// multi-argument ones skip holes, so one tag with a gap does not blank the
-// average of five; the single-argument ones pass the hole straight through.
-const FUNCS = {
-  abs: (a) => Math.abs(a[0]),
-  sqrt: (a) => Math.sqrt(a[0]),
-  ln: (a) => Math.log(a[0]),
-  log10: (a) => Math.log10(a[0]),
-  exp: (a) => Math.exp(a[0]),
-  round: (a) => Math.round(a[0]),
-  min: (a) => Math.min(...a),
-  max: (a) => Math.max(...a),
-  avg: (a) => a.reduce((sum, n) => sum + n, 0) / a.length,
-};
+// Functions an expression may call, in the order the "unknown function"
+// message lists them (calc/parser.py lists them the same way). The block
+// editor offers every one and needs to know which take several inputs.
+export const FUNCTION_NAMES = [
+  "abs", "sqrt", "ln", "log10", "exp", "round", "min", "max", "avg",
+];
 const MULTI = new Set(["min", "max", "avg"]);
-
-// For the block editor, which offers every function the parser knows and
-// needs to know how many inputs each one takes.
-export const FUNCTION_NAMES = Object.keys(FUNCS);
 export function takesMany(name) { return MULTI.has(name); }
 
 // Sticky, so the tokenizer can match at a position rather than search from it.
 const NUM_AT = /\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
 // A bare name may contain hyphens, because every other IP21 tag does: that
 // makes "=TI-101-TI-201" one name rather than a subtraction, which is what the
-// brackets are for. A reference that does not exist says so by name, and
-// resolveHint() below spells the rest out.
+// brackets are for. A reference that does not exist says so by name, and the
+// server's resolve_hint() spells the rest out.
 const NAME_AT = /[A-Za-z_][\w.-]*(?:;[\w.\- ]*)?/y;
 
 function tokenize(text) {
@@ -132,8 +124,8 @@ function parsePrimary(p) {
     const next = peek(p);
     // A name followed by "(" is a call; anything else is a tag.
     if (!next || next.t !== "(") return { k: "ref", ref: token.v, bare: true };
-    if (!FUNCS[token.v]) {
-      throw new Error(`unknown function "${token.v}" - try ${Object.keys(FUNCS).join(", ")}`);
+    if (!FUNCTION_NAMES.includes(token.v)) {
+      throw new Error(`unknown function "${token.v}" - try ${FUNCTION_NAMES.join(", ")}`);
     }
     p.i += 1;
     const args = [parseExpr(p)];
@@ -173,45 +165,4 @@ export function parseFormula(text) {
   // borrow one from.
   if (!refs.length) throw new Error("a formula needs at least one tag, e.g. =[TI-101] * 2");
   return { node, refs, bare };
-}
-
-// A name written without brackets that turns out not to exist is nearly
-// always a subtraction: "=TI-101-TI-201" is one name to the tokenizer, because
-// every other IP21 tag has a hyphen in it too. Only worth saying when the user
-// did not bracket it - a bracketed name means exactly what it says.
-export function resolveHint(ref, wasBare) {
-  if (!wasBare) return "";
-  const parts = ref.split("-").filter(Boolean);
-  if (parts.length < 2) return "";
-  return ` - to subtract, write [${parts.join("] - [")}]`;
-}
-
-// One timestamp's worth: at(ref) returns that tag's value there, or null.
-// A hole anywhere is a hole in the answer, and so is anything that stops being
-// a finite number on the way out - x/0, sqrt of a negative, ln(0).
-export function evalNode(node, at) {
-  if (node.k === "num") return node.v;
-  if (node.k === "ref") return at(node.ref);
-  if (node.k === "neg") {
-    const a = evalNode(node.a, at);
-    return a == null ? null : -a;
-  }
-  if (node.k === "bin") {
-    const a = evalNode(node.a, at);
-    if (a == null) return null;
-    const b = evalNode(node.b, at);
-    if (b == null) return null;
-    let out;
-    if (node.op === "+") out = a + b;
-    else if (node.op === "-") out = a - b;
-    else if (node.op === "*") out = a * b;
-    else if (node.op === "/") out = a / b;
-    else out = a ** b;
-    return Number.isFinite(out) ? out : null;
-  }
-  const args = node.args.map((arg) => evalNode(arg, at));
-  const live = MULTI.has(node.name) ? args.filter((v) => v != null) : args;
-  if (!live.length || live.some((v) => v == null)) return null;
-  const out = FUNCS[node.name](live);
-  return Number.isFinite(out) ? out : null;
 }

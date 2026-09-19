@@ -12,19 +12,20 @@ export async function apiSearchTags(q, signal) {
   return await resp.json();
 }
 
-// One /api/data request outside a tab's own fetch: the series by tag name,
-// for the block editor's preview of tags nothing has loaded yet.
-export async function apiFetchSeries(tags, { start, end, sample, interval, points }, signal) {
-  const params = new URLSearchParams({
-    tags: tags.join(","), start: String(start), end: String(end),
-    sample, interval, points: String(points),
+// Formula rows, computed on the server: {start, end, points, items} ->
+// {series: {id: {t, v, step}}, errors: {id: {text, hard}}}.
+export async function apiCompute(body, signal) {
+  const resp = await fetch("/api/compute", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
   });
-  const resp = await fetch(`/api/data?${params}`, { signal });
   if (!resp.ok) {
     const detail = (await resp.json().catch(() => ({}))).detail;
-    throw new Error(detail || `data request failed (${resp.status})`);
+    throw new Error(typeof detail === "string" ? detail : `compute failed (${resp.status})`);
   }
-  return (await resp.json()).series;
+  return await resp.json();
 }
 
 // Favourite record maps, shared across tags and stored server-side in the env

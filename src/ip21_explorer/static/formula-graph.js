@@ -5,7 +5,7 @@
    downstream - fetching, computing, saving - knows blocks exist. Pure: it
    imports only the parser. */
 
-import { evalNode, parseFormula, takesMany } from "./formula.js";
+import { parseFormula, takesMany } from "./formula.js";
 
 // Node types: tag {ref}, num {value}, op {op}, neg, fn {name}, out.
 // Wires: {from, to, port} - the output of `from` into input `port` of `to`.
@@ -201,20 +201,6 @@ export function textFromGraph(graph, id = "out") {
   } catch (err) {
     return { text: "", errors: [err.message] };
   }
-}
-
-// Each block's value at one moment, for the badges while the preview cursor
-// moves. A block that cannot be evaluated yet (an empty input) has none.
-export function evalGraphAt(graph, at) {
-  const values = new Map();
-  for (const node of graph.nodes) {
-    try {
-      values.set(node.id, evalNode(nodeAst(graph, node.id), at));
-    } catch (err) {
-      values.set(node.id, undefined);
-    }
-  }
-  return values;
 }
 
 // -- layout ------------------------------------------------------------------
