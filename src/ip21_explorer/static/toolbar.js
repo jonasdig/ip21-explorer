@@ -121,7 +121,8 @@ export function initToolbar() {
     }
     if (e.key !== "Escape") return;
     if (typing) return;
-    if ($("open-dialog").open || $("save-dialog").open) return; // dialogs close themselves
+    if ($("open-dialog").open || $("save-dialog").open ||
+        $("formula-editor").open) return; // dialogs close themselves
     if (!$("context-menu").classList.contains("hidden")) { hideContextMenu(); return; }
     popHistory();
   });

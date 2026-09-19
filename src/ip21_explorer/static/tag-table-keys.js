@@ -10,7 +10,8 @@ import { $ } from "./util.js";
 // where Ctrl+C would otherwise copy every tag instead of the selection.
 export function isEditingContext(node) {
   if (!node) return false;
-  return ["INPUT", "SELECT", "TEXTAREA"].includes(node.tagName) || !!node.closest("#tag-table");
+  return ["INPUT", "SELECT", "TEXTAREA"].includes(node.tagName) ||
+    !!node.closest("#tag-table") || !!node.closest("dialog[open]");
 }
 
 // Tab and Shift+Tab are left to the browser: its own order already runs left

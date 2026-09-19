@@ -54,6 +54,16 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   Formulas may refer to other formulas by their description, and a cycle says
   so by name. Give the row a unit and a short name in the Unit and Description
   cells and that is what the readouts and the CSV use
+- **Formula blocks**: the same formulas, built by dragging blocks - tags,
+  numbers, the arithmetic and every function - onto a canvas and wiring them
+  together. Open it with the *ƒ* on the blank row, or *Edit visually* /
+  *New formula from this tag* in a row's right-click menu. Tags can be
+  searched for right there, including ones that are not on the plot; `+`, `×`,
+  `min`, `max` and `avg` take any number of inputs. A preview trend shows the
+  result, and hovering over it shows every block's value at that moment, so a
+  long formula shows where it goes wrong. The text stays the truth: Apply
+  writes the expression into the Tag field, it can still be edited as text,
+  and the text field under the canvas rebuilds the blocks from what is typed
 - **XY plot with a time colour**: tags against a shared x, every point
   coloured by when it is, so drift shows up as the cloud moving rather than as
   trends that have to be compared by eye. The table's show column decides what
@@ -231,6 +241,8 @@ src/ip21_explorer/
     formula.js         "=" expressions: parser and evaluator (imports nothing)
     resample.js        Reading a series at a time it has no sample of
     computed.js        Formula rows: references, order, evaluation
+    formula-graph.js   Formulas as blocks and wires, and back to text
+    formula-editor.js  The block editor window
     xy-chart.js        XY plot, time colour ramp and its legend
     tag-table.js       Settings table (tag-table-keys.js: its keyboard handling)
     search.js          Tag search         timerange.js   Presets, zoom, live

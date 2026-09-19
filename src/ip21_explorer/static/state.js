@@ -63,6 +63,9 @@ export function makeTag(info) {
     points: info.points === true,     // dots on the samples in the trend view
     symbol: info.symbol || null,      // XY point symbol, null = by position
     pointColor: info.pointColor === "fixed" ? "fixed" : "time", // XY points: time ramp or row colour
+    // A formula's blocks, from the block editor, kept while its text is still
+    // theirs: {text, graph}. Only so they come back where they were left.
+    graphLayout: info.graphLayout || null,
   };
 }
 

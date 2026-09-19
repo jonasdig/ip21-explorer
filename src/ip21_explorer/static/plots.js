@@ -62,6 +62,7 @@ function configToTab(name, config) {
       points: t.points,
       symbol: t.symbol,
       pointColor: t.pointColor,
+      graphLayout: t.graphLayout,
     });
     tag.map = t.map ?? null;
     tag.color = t.color || null;

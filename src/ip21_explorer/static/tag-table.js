@@ -2,6 +2,7 @@
 
 import { favoriteMaps, orderedMaps, saveFavorites } from "./api.js";
 import { isComputed } from "./computed.js";
+import { openFormulaEditor } from "./formula-editor.js";
 import { isXyMode } from "./xy-chart.js";
 import { INTERVALS, SAMPLES } from "./constants.js";
 import { openSwatchMenu, showTagMenu } from "./menu.js";
@@ -438,6 +439,12 @@ function buildNewRow() {
   });
   cellOf(row, "name").appendChild(input);
   cellOf(row, "desc").textContent = "type a tag name and press Enter";
+
+  // Or build a formula from blocks, on a blank sheet.
+  const fx = el("button", "fx", "\u0192");
+  fx.title = "Build a formula from blocks";
+  fx.addEventListener("click", () => openFormulaEditor(activeTab(), null));
+  cellOf(row, "color").appendChild(fx);
   return row;
 }
 

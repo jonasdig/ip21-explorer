@@ -26,6 +26,11 @@ const FUNCS = {
 };
 const MULTI = new Set(["min", "max", "avg"]);
 
+// For the block editor, which offers every function the parser knows and
+// needs to know how many inputs each one takes.
+export const FUNCTION_NAMES = Object.keys(FUNCS);
+export function takesMany(name) { return MULTI.has(name); }
+
 // Sticky, so the tokenizer can match at a position rather than search from it.
 const NUM_AT = /\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
 // A bare name may contain hyphens, because every other IP21 tag does: that

@@ -1,0 +1,593 @@
+/* The block editor: a formula built by dragging blocks in and wiring them up.
+
+   It edits a graph (formula-graph.js) and hands back text: Apply writes the
+   expression into the row's Tag field exactly as if it had been typed, so
+   everything after that - fetching, computing, saving - is the formula path
+   that already exists. The graph itself is kept on the row only so that the
+   blocks come back where they were left. */
+
+import { apiSearchTags } from "./api.js";
+import { xAxisValues } from "./chart.js";
+import { isComputed, previewFormula, refSampler } from "./computed.js";
+import { MIN_QUERY_LEN, SEARCH_DEBOUNCE_MS } from "./constants.js";
+import { FUNCTION_NAMES } from "./formula.js";
+import {
+  emptyGraph, evalGraphAt, graphFromText, inputPorts, isVariadic, layoutGraph,
+  newNode, nodeLabel, textFromGraph,
+} from "./formula-graph.js";
+import { makeTag, reqName, rt, saveState } from "./state.js";
+import { insertTags, setTagFields, tagLabel } from "./tags.js";
+import { $, el, fmtTime, fmtVal } from "./util.js";
+
+// The one editor there is. tab and tag say what Apply writes to (tag null =
+// a new row); graph is what is on the canvas.
+let session = null;
+let shell = null;       // the dialog's parts, built on first use
+
+// -- opening -------------------------------------------------------------------
+
+// Opens on an existing formula row, on a blank sheet (tag null), or seeded
+// with one plain tag as the first block ("New formula from this tag").
+export function openFormulaEditor(tab, tag, seed) {
+  if (!shell) shell = buildShell();
+  let graph = null;
+  let problem = "";
+  if (tag && isComputed(tag)) {
+    const kept = tag.graphLayout;
+    if (kept && kept.text === tag.name && kept.graph) {
+      graph = JSON.parse(JSON.stringify(kept.graph));
+    } else {
+      try { graph = graphFromText(tag.name); } catch (err) { problem = err.message; }
+    }
+  }
+  if (!graph) {
+    graph = emptyGraph();
+    if (seed) {
+      const node = newNode(graph, { type: "tag", ref: reqName(seed) });
+      graph.wires.push({ from: node.id, to: "out", port: 0 });
+    }
+    layoutGraph(graph);
+    // A blank sheet: Result over on the right, where the blocks will flow to.
+    if (!seed) Object.assign(graph.nodes[0], { x: 560, y: 160 });
+  }
+  session = { tab, tag: tag && isComputed(tag) ? tag : null, graph, pan: { x: 0, y: 0 },
+    selected: null, preview: null };
+  shell.title.textContent = session.tag
+    ? `Formula: ${tagLabel(tab, session.tag)}` : "New formula";
+  fillRows();
+  shell.search.value = "";
+  shell.results.innerHTML = "";
+  // Open first: the wires are drawn between ports measured on screen, and a
+  // closed dialog has nothing on screen to measure.
+  shell.dialog.showModal();
+  render();
+  if (problem) showErrors([`the formula text could not be read: ${problem}`]);
+}
+
+// -- the window ----------------------------------------------------------------
+
+function buildShell() {
+  const dialog = $("formula-editor");
+  dialog.innerHTML = "";
+  const title = el("h3", "fe-title");
+  const body = el("div", "fe-body");
+
+  const palette = el("aside", "fe-palette");
+  const search = el("input", "fe-search");
+  search.type = "text";
+  search.placeholder = "Search tag or description…";
+  search.spellcheck = false;
+  search.autocomplete = "off";
+  const results = el("div", "fe-list");
+  const rows = el("div", "fe-list");
+  const blocks = el("div", "fe-blocks");
+  palette.append(
+    search, results,
+    el("h4", null, "On this plot"), rows,
+    el("h4", null, "Blocks"), blocks,
+  );
+
+  const canvas = el("div", "fe-canvas");
+  canvas.tabIndex = -1;
+  const world = el("div", "fe-world");
+  const wires = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  wires.classList.add("fe-wires");
+  const nodes = el("div", "fe-nodes");
+  world.append(wires, nodes);
+  canvas.appendChild(world);
+  body.append(palette, canvas);
+
+  const foot = el("div", "fe-foot");
+  const text = el("input", "fe-text");
+  text.type = "text";
+  text.spellcheck = false;
+  text.title = "The formula the blocks make. Type here and press Enter to rebuild the blocks from it.";
+  const errors = el("div", "fe-errors");
+  const preview = el("div", "fe-preview");
+  const buttons = el("div", "dialog-buttons");
+  const tidy = el("button", null, "Tidy");
+  tidy.title = "Lay the blocks out afresh";
+  const cancel = el("button", null, "Cancel");
+  const apply = el("button", "primary", "Apply");
+  buttons.append(tidy, el("span", "spacer"), cancel, apply);
+  foot.append(text, errors, preview, buttons);
+
+  dialog.append(title, body, foot);
+
+  for (const [label, fields] of paletteBlocks()) {
+    blocks.appendChild(paletteItem(label, fields, "fe-block"));
+  }
+
+  // Background drag pans; a click on nothing clears the selection.
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.target !== canvas && e.target !== world && e.target !== nodes &&
+        e.target !== wires) return;
+    selectItem(null);
+    const start = { x: e.clientX - session.pan.x, y: e.clientY - session.pan.y };
+    canvas.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      session.pan = { x: ev.clientX - start.x, y: ev.clientY - start.y };
+      world.style.transform = `translate(${session.pan.x}px, ${session.pan.y}px)`;
+    };
+    const up = () => {
+      canvas.removeEventListener("pointermove", move);
+      canvas.removeEventListener("pointerup", up);
+    };
+    canvas.addEventListener("pointermove", move);
+    canvas.addEventListener("pointerup", up);
+  });
+
+  dialog.addEventListener("keydown", (e) => {
+    // Escape is Cancel. Handled here rather than left to the browser, which
+    // may hold a dialog's own Escape back when it was opened from script.
+    if (e.key === "Escape") { e.preventDefault(); dialog.close(); return; }
+    const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName);
+    if ((e.key === "Delete" || e.key === "Backspace") && !typing && session.selected) {
+      e.preventDefault();
+      removeSelected();
+    }
+  });
+  dialog.addEventListener("close", () => {
+    if (session && session.preview) { session.preview.destroy(); session.preview = null; }
+  });
+
+  text.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const typed = text.value.trim();
+    try {
+      session.graph = graphFromText(typed.startsWith("=") ? typed : `=${typed}`);
+      render();
+    } catch (err) {
+      showErrors([err.message]);
+    }
+  });
+
+  tidy.addEventListener("click", () => { layoutGraph(session.graph); render(); });
+  cancel.addEventListener("click", () => dialog.close());
+  apply.addEventListener("click", applyEditor);
+
+  let timer = null, abort = null;
+  search.addEventListener("input", () => {
+    clearTimeout(timer);
+    const q = search.value.trim();
+    if (q.length < MIN_QUERY_LEN) { results.innerHTML = ""; return; }
+    timer = setTimeout(async () => {
+      if (abort) abort.abort();
+      abort = new AbortController();
+      try {
+        const answer = await apiSearchTags(q, abort.signal);
+        results.innerHTML = "";
+        if (!answer.tags.length) results.appendChild(el("div", "fe-none", "No tags found"));
+        for (const hit of answer.tags) {
+          const item = paletteItem(hit.name, { type: "tag", ref: hit.name }, "fe-tag");
+          if (hit.description) item.title = hit.description;
+          results.appendChild(item);
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") results.textContent = err.message;
+      }
+    }, SEARCH_DEBOUNCE_MS);
+  });
+
+  return { dialog, title, canvas, world, wires, nodes, search, results, rows,
+    text, errors, preview, apply };
+}
+
+// Every block the parser knows, grouped as a toolbox reads.
+function paletteBlocks() {
+  return [
+    ["Number", { type: "num", value: 1 }],
+    ["+", { type: "op", op: "+" }],
+    ["−", { type: "op", op: "-" }],
+    ["×", { type: "op", op: "*" }],
+    ["÷", { type: "op", op: "/" }],
+    ["^", { type: "op", op: "^" }],
+    ["−x", { type: "neg" }],
+  ].concat(FUNCTION_NAMES.map((name) => [name, { type: "fn", name }]));
+}
+
+// The rows on the tab, for quick access: their bare request name is what a
+// formula refers to them by. Other formulas go by their short description.
+function fillRows() {
+  shell.rows.innerHTML = "";
+  for (const tag of session.tab.tags) {
+    if (session.tag && tag === session.tag) continue;
+    const ref = isComputed(tag) ? (tag.description || "").trim() : reqName(tag);
+    if (!ref) continue;
+    const item = paletteItem(tagLabel(session.tab, tag), { type: "tag", ref }, "fe-tag");
+    item.style.borderLeftColor = tag.color || "transparent";
+    shell.rows.appendChild(item);
+  }
+}
+
+// A palette entry: click to drop the block mid-canvas, or drag it to a spot.
+function paletteItem(label, fields, cls) {
+  const item = el("div", `fe-item ${cls}`, label);
+  item.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    const ghost = el("div", "fe-ghost", label);
+    document.body.appendChild(ghost);
+    const place = (ev) => {
+      ghost.style.left = `${ev.clientX + 8}px`;
+      ghost.style.top = `${ev.clientY + 8}px`;
+    };
+    place(e);
+    let moved = false;
+    const move = (ev) => { moved = true; place(ev); };
+    const up = (ev) => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      ghost.remove();
+      const box = shell.canvas.getBoundingClientRect();
+      const inside = ev.clientX >= box.left && ev.clientX <= box.right &&
+        ev.clientY >= box.top && ev.clientY <= box.bottom;
+      if (moved && !inside) return;       // dragged somewhere else: nothing
+      const at = moved
+        ? { x: ev.clientX - box.left - session.pan.x - 40, y: ev.clientY - box.top - session.pan.y - 16 }
+        : spareSpot(box);
+      const node = newNode(session.graph, { ...fields, ...at });
+      render();
+      selectItem({ node: node.id });
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  });
+  return item;
+}
+
+// A clicked block lands near the middle of what is on show, stepping aside
+// from the last one so a row of clicks does not stack them on one spot.
+function spareSpot(box) {
+  const count = session.graph.nodes.length;
+  return {
+    x: box.width / 2 - session.pan.x - 60 + (count % 5) * 14,
+    y: box.height / 2 - session.pan.y - 30 + (count % 5) * 14,
+  };
+}
+
+// -- drawing -------------------------------------------------------------------
+
+function render() {
+  const { graph } = session;
+  shell.world.style.transform = `translate(${session.pan.x}px, ${session.pan.y}px)`;
+  shell.nodes.innerHTML = "";
+  for (const node of graph.nodes) shell.nodes.appendChild(buildNode(node));
+  renderWires();
+  // A change on the canvas wins over whatever sits in the text field, even
+  // if it still has the focus from the last time it was typed in.
+  refreshText(true);
+}
+
+function buildNode(node) {
+  const selected = session.selected && session.selected.node === node.id;
+  const box = el("div", `fe-node ${node.type}` + (selected ? " selected" : ""));
+  box.dataset.id = node.id;
+  box.style.left = `${node.x}px`;
+  box.style.top = `${node.y}px`;
+
+  const head = el("div", "head");
+  head.appendChild(el("span", "label", node.type === "tag" ? "Tag"
+    : node.type === "num" ? "Number" : nodeLabel(node)));
+  if (node.type !== "out") {
+    const close = el("button", "x", "×");
+    close.title = "Remove block";
+    close.addEventListener("click", (e) => {
+      e.stopPropagation();
+      session.selected = { node: node.id };
+      removeSelected();
+    });
+    head.appendChild(close);
+  }
+  box.appendChild(head);
+
+  const main = el("div", "main");
+  const ins = el("div", "ins");
+  const count = inputPorts(session.graph, node);
+  for (let port = 0; port < count; port++) {
+    const dot = el("span", "port in");
+    dot.dataset.port = String(port);
+    const wired = session.graph.wires.some((w) => w.to === node.id && w.port === port);
+    dot.classList.toggle("wired", wired);
+    dot.title = isVariadic(node) && !wired ? "Wire another input here" : "Input";
+    dot.addEventListener("pointerdown", (e) => pickUpWire(e, node, port));
+    ins.appendChild(dot);
+  }
+  main.appendChild(ins);
+
+  const content = el("div", "content");
+  if (node.type === "tag" || node.type === "num") {
+    const field = el("input");
+    field.type = "text";
+    field.spellcheck = false;
+    field.value = node.type === "tag" ? (node.ref || "") : String(node.value);
+    field.placeholder = node.type === "tag" ? "TAG or TAG;MAP" : "0";
+    field.addEventListener("pointerdown", (e) => e.stopPropagation());
+    field.addEventListener("input", () => {
+      if (node.type === "tag") node.ref = field.value;
+      else node.value = field.value;
+      refreshText();
+    });
+    content.appendChild(field);
+  } else if (node.type === "out") {
+    content.appendChild(el("span", "big", "="));
+  } else {
+    content.appendChild(el("span", "big", nodeLabel(node)));
+  }
+  content.appendChild(el("span", "val"));
+  main.appendChild(content);
+
+  if (node.type !== "out") {
+    const out = el("span", "port out");
+    out.title = "Drag to an input";
+    out.addEventListener("pointerdown", (e) => beginWire(e, node.id));
+    main.appendChild(out);
+  }
+  box.appendChild(main);
+
+  box.addEventListener("pointerdown", (e) => beginMove(e, node, box));
+  return box;
+}
+
+// Where a port sits in world coordinates - the space the SVG draws in.
+function portPoint(nodeId, kind, port) {
+  const box = shell.nodes.querySelector(`.fe-node[data-id="${nodeId}"]`);
+  if (!box) return null;
+  const dot = kind === "out"
+    ? box.querySelector(".port.out")
+    : box.querySelector(`.port.in[data-port="${port}"]`);
+  if (!dot) return null;
+  const world = shell.world.getBoundingClientRect();
+  const r = dot.getBoundingClientRect();
+  return { x: r.left + r.width / 2 - world.left, y: r.top + r.height / 2 - world.top };
+}
+
+function curve(a, b) {
+  const dx = Math.max(40, Math.abs(b.x - a.x) / 2);
+  return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function renderWires(extra) {
+  const svg = shell.wires;
+  svg.innerHTML = "";
+  session.graph.wires.forEach((wire, i) => {
+    const a = portPoint(wire.from, "out"), b = portPoint(wire.to, "in", wire.port);
+    if (!a || !b) return;
+    const d = curve(a, b);
+    // A wide invisible twin makes a thin wire possible to click.
+    const hit = document.createElementNS(SVG_NS, "path");
+    hit.setAttribute("d", d);
+    hit.setAttribute("class", "hit");
+    hit.addEventListener("pointerdown", (e) => { e.stopPropagation(); selectItem({ wire: i }); });
+    const line = document.createElementNS(SVG_NS, "path");
+    line.setAttribute("d", d);
+    const on = session.selected && session.selected.wire === i;
+    line.setAttribute("class", on ? "wire selected" : "wire");
+    svg.append(line, hit);
+  });
+  if (extra) {
+    const line = document.createElementNS(SVG_NS, "path");
+    line.setAttribute("d", curve(extra.a, extra.b));
+    line.setAttribute("class", "wire pending");
+    svg.appendChild(line);
+  }
+}
+
+function selectItem(what) {
+  // Choosing a block or a wire is leaving the text fields: the canvas takes
+  // the focus, so Delete goes to the selection rather than to the field
+  // typed in last - and stays inside the dialog, where it is listened for.
+  shell.canvas.focus({ preventScroll: true });
+  session.selected = what;
+  for (const box of shell.nodes.querySelectorAll(".fe-node")) {
+    box.classList.toggle("selected", !!what && what.node === box.dataset.id);
+  }
+  renderWires();
+}
+
+// -- editing -------------------------------------------------------------------
+
+function beginMove(e, node, box) {
+  if (e.target.closest(".port") || e.target.closest("input") || e.target.closest("button")) return;
+  e.preventDefault();
+  selectItem({ node: node.id });
+  box.setPointerCapture(e.pointerId);
+  const start = { x: e.clientX - node.x, y: e.clientY - node.y };
+  const move = (ev) => {
+    node.x = ev.clientX - start.x;
+    node.y = ev.clientY - start.y;
+    box.style.left = `${node.x}px`;
+    box.style.top = `${node.y}px`;
+    renderWires();
+  };
+  const up = () => {
+    box.removeEventListener("pointermove", move);
+    box.removeEventListener("pointerup", up);
+  };
+  box.addEventListener("pointermove", move);
+  box.addEventListener("pointerup", up);
+}
+
+// Dragging from an output draws a wire that follows the pointer; letting go
+// over an input connects it, replacing whatever that input had.
+function beginWire(e, fromId) {
+  e.preventDefault();
+  e.stopPropagation();
+  const a = portPoint(fromId, "out");
+  const world = () => shell.world.getBoundingClientRect();
+  const move = (ev) => {
+    const w = world();
+    renderWires({ a, b: { x: ev.clientX - w.left, y: ev.clientY - w.top } });
+  };
+  const up = (ev) => {
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", up);
+    const target = document.elementFromPoint(ev.clientX, ev.clientY);
+    const dot = target && target.closest(".port.in");
+    if (dot) {
+      const toId = dot.closest(".fe-node").dataset.id;
+      const port = Number(dot.dataset.port);
+      if (toId !== fromId) {
+        session.graph.wires = session.graph.wires.filter(
+          (w) => !(w.to === toId && w.port === port));
+        session.graph.wires.push({ from: fromId, to: toId, port });
+      }
+    }
+    render();
+  };
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", up);
+}
+
+// Grabbing a wired input picks its wire up again, to move it or drop it.
+function pickUpWire(e, node, port) {
+  const wire = session.graph.wires.find((w) => w.to === node.id && w.port === port);
+  if (!wire) { e.stopPropagation(); return; }
+  session.graph.wires = session.graph.wires.filter((w) => w !== wire);
+  compactPorts(node);
+  render();
+  beginWire(e, wire.from);
+}
+
+// A variadic block keeps its inputs packed, so taking one out of the middle
+// does not leave a hole the formula would read as an empty argument.
+function compactPorts(node) {
+  if (!isVariadic(node)) return;
+  session.graph.wires
+    .filter((w) => w.to === node.id)
+    .sort((a, b) => a.port - b.port)
+    .forEach((w, i) => { w.port = i; });
+}
+
+function removeSelected() {
+  const { graph } = session;
+  const sel = session.selected;
+  if (!sel) return;
+  if (sel.wire != null) {
+    const wire = graph.wires[sel.wire];
+    graph.wires.splice(sel.wire, 1);
+    const target = wire && graph.nodes.find((n) => n.id === wire.to);
+    if (target) compactPorts(target);
+  } else if (sel.node && sel.node !== "out") {
+    const touched = graph.wires.filter((w) => w.from === sel.node).map((w) => w.to);
+    graph.nodes = graph.nodes.filter((n) => n.id !== sel.node);
+    graph.wires = graph.wires.filter((w) => w.from !== sel.node && w.to !== sel.node);
+    for (const id of touched) {
+      const target = graph.nodes.find((n) => n.id === id);
+      if (target) compactPorts(target);
+    }
+  }
+  session.selected = null;
+  render();
+}
+
+// -- text, errors and the preview ---------------------------------------------
+
+function showErrors(list) {
+  shell.errors.innerHTML = "";
+  for (const message of list) shell.errors.appendChild(el("div", null, message));
+  shell.errors.classList.toggle("hidden", !list.length);
+}
+
+let previewTimer = null;
+
+function refreshText(force) {
+  const { text, errors } = textFromGraph(session.graph);
+  if (force || document.activeElement !== shell.text) shell.text.value = text;
+  showErrors(errors);
+  shell.apply.disabled = !!errors.length;
+  // The preview is a small chart rebuilt from scratch, so typing in a block
+  // waits for a pause before it is redrawn.
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => renderPreview(errors.length ? null : text), 150);
+}
+
+function renderPreview(text) {
+  const box = shell.preview;
+  if (session.preview) { session.preview.destroy(); session.preview = null; }
+  box.innerHTML = "";
+  if (!text) { box.appendChild(el("div", "fe-none", "No preview until the formula is complete.")); return; }
+  const r = rt(session.tab);
+  const result = previewFormula(session.tab, r, text);
+  if (result.error) { box.appendChild(el("div", "fe-none", result.error)); return; }
+  if (result.missing) {
+    box.appendChild(el("div", "fe-none",
+      `${result.missing.join(", ")}: not loaded yet - fetched on Apply, previewed after that.`));
+    return;
+  }
+  const readout = el("div", "fe-readout");
+  box.appendChild(readout);
+  const sampler = refSampler(session.tab, r);
+  const width = Math.max(200, box.clientWidth - 8);
+  session.preview = new uPlot({
+    width,
+    height: 110,
+    legend: { show: false },
+    scales: { x: { time: true } },
+    axes: [
+      // The main chart's 24-hour labels, not uPlot's own am/pm ones.
+      { stroke: "#8b93a3", grid: { stroke: "#232834" }, ticks: { stroke: "#2e3442" },
+        size: 34, values: xAxisValues },
+      { stroke: "#8b93a3", grid: { stroke: "#232834" }, ticks: { stroke: "#2e3442" }, size: 48 },
+    ],
+    series: [{}, { stroke: "#4fc3f7", width: 1.4, spanGaps: true, points: { show: false } }],
+    cursor: { drag: { x: false, y: false }, points: { size: 6 } },
+    hooks: {
+      // Under the cursor, every block shows what it amounts to at that moment:
+      // where a long formula goes wrong is where the numbers stop making sense.
+      setCursor: [(u) => {
+        const idx = u.cursor.idx;
+        const t = idx == null ? null : u.data[0][idx];
+        const values = t == null ? new Map()
+          : evalGraphAt(session.graph, (ref) => sampler(ref, t));
+        readout.textContent = t == null ? "" : `${fmtTime(t, true)}   ${fmtVal(u.data[1][idx])}`;
+        for (const node of shell.nodes.querySelectorAll(".fe-node")) {
+          const v = values.get(node.dataset.id);
+          node.querySelector(".val").textContent =
+            t == null || v === undefined ? "" : fmtVal(v);
+        }
+      }],
+    },
+  }, [result.t, result.v], box);
+}
+
+// -- applying ------------------------------------------------------------------
+
+function applyEditor() {
+  const { text, errors } = textFromGraph(session.graph);
+  if (errors.length) return;
+  const { tab, tag } = session;
+  // The blocks are kept only while the text is still theirs: a later edit in
+  // the Tag field lays them out afresh from the new text.
+  const layout = { text, graph: JSON.parse(JSON.stringify(session.graph)) };
+  if (tag) {
+    tag.graphLayout = layout;
+    if (tag.name === text) saveState();
+    else setTagFields(tab, tag, { name: text });
+  } else {
+    insertTags(tab, [makeTag({ name: text, graphLayout: layout })]);
+  }
+  shell.dialog.close();
+}

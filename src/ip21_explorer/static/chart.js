@@ -44,7 +44,7 @@ export function scaleRangeFn(tag) {
 // The year is spelled out only when the window needs it, which is exactly when
 // its two ends fall in different calendar years: anything wider than a year
 // always does, and eleven months inside one year never does.
-function xAxisValues(u, splits, axisIdx, foundSpace, foundIncr) {
+export function xAxisValues(u, splits, axisIdx, foundSpace, foundIncr) {
   let prevDay = null;
   const withYear = new Date(u.scales.x.min * 1000).getFullYear()
     !== new Date(u.scales.x.max * 1000).getFullYear();

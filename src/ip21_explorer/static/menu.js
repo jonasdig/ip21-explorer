@@ -5,9 +5,11 @@ import {
 } from "./analysis.js";
 import { currentXRange } from "./chart.js";
 import { copyTags, pasteFromClipboard } from "./clipboard.js";
+import { isComputed } from "./computed.js";
 import { PALETTE, XY_SYMBOLS } from "./constants.js";
 import { addScooterAt, mountScooters } from "./scooters.js";
 import { activeTab, byUid, rt, saveState } from "./state.js";
+import { openFormulaEditor } from "./formula-editor.js";
 import { focusTagCell } from "./tag-table.js";
 import { duplicateTag, removeTag, setTagField, tagLabel } from "./tags.js";
 import { popHistory, resetZoom } from "./timerange.js";
@@ -201,6 +203,9 @@ export function showTagMenu(e, tag) {
     ["Copy tag", "Ctrl+C", () => copyTags([tag])],
     ["Copy all tags", null, () => copyTags(tab.tags), !tab.tags.length],
     ["Duplicate tag", null, () => duplicateTag(tag.uid)],
+    isComputed(tag)
+      ? ["Edit visually", null, () => openFormulaEditor(tab, tag)]
+      : ["New formula from this tag", null, () => openFormulaEditor(tab, null, tag)],
     ["Paste tags", "Ctrl+V", pasteFromClipboard],
     null,
     ["Use as X axis", null, () => setXyAxis(tag.uid),
