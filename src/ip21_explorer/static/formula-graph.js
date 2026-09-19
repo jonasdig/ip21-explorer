@@ -5,9 +5,10 @@
    downstream - fetching, computing, saving - knows blocks exist. Pure: it
    imports only the parser. */
 
-import { parseFormula, takesMany } from "./formula.js";
+import { PERIODS, parseFormula, takesMany } from "./formula.js";
 
-// Node types: tag {ref}, num {value}, op {op}, neg, fn {name}, out.
+// Node types: tag {ref}, num {value}, op {op}, neg, fn {name, period?}, out.
+// A total block is fn {name: "total", period: "day"}.
 // Wires: {from, to, port} - the output of `from` into input `port` of `to`.
 // An output may feed any number of inputs; an input takes one wire at most.
 
@@ -43,7 +44,9 @@ export function inputPorts(graph, node) {
   return Math.max(2, (used.length ? Math.max(...used) + 1 : 0) + 1);
 }
 
-const OP_SIGNS = { "+": "+", "-": "−", "*": "×", "/": "÷", "^": "^" };
+const OP_SIGNS = {
+  "+": "+", "-": "−", "*": "×", "/": "÷", "^": "^", ">": ">", "<": "<", ">=": "≥", "<=": "≤",
+};
 
 export function nodeLabel(node) {
   if (node.type === "tag") return node.ref || "tag";
@@ -79,7 +82,9 @@ export function graphFromText(text) {
       return node.id;
     }
     if (tree.k === "fn") {
-      const node = newNode(graph, { type: "fn", name: tree.name });
+      const fields = { type: "fn", name: tree.name };
+      if (tree.period) fields.period = tree.period;
+      const node = newNode(graph, fields);
       tree.args.forEach((arg, i) => graph.wires.push({ from: build(arg), to: node.id, port: i }));
       return node.id;
     }
@@ -139,6 +144,11 @@ function nodeAst(graph, id, stack = []) {
     return sub(inputs[0]);
   }
   if (node.type === "neg") { need(1); return { k: "neg", a: sub(inputs[0]) }; }
+  if (node.type === "fn" && node.name === "total") {
+    need(1);
+    const period = PERIODS.includes(node.period) ? node.period : "day";
+    return { k: "fn", name: "total", args: [sub(inputs[0])], period };
+  }
   if (node.type === "fn" && !takesMany(node.name)) {
     need(1);
     return { k: "fn", name: node.name, args: [sub(inputs[0])] };
@@ -155,9 +165,10 @@ function nodeAst(graph, id, stack = []) {
   return { k: "bin", op: node.op, a: sub(inputs[0]), b: sub(inputs[1]) };
 }
 
-// Precedence as formula.js parses it: unary minus binds tighter than ^, which
-// is right-associative; - and / are left-associative.
-const PREC = { "+": 1, "-": 1, "*": 2, "/": 2, "^": 3 };
+// Precedence as formula.js parses it: comparisons loosest, and never two in a
+// row; unary minus binds tighter than ^, which is right-associative; - and /
+// are left-associative.
+const PREC = { ">": 0, "<": 0, ">=": 0, "<=": 0, "+": 1, "-": 1, "*": 2, "/": 2, "^": 3 };
 const PREC_NEG = 4;
 const PREC_ATOM = 5;
 
@@ -168,7 +179,9 @@ function emitAst(tree) {
   }
   if (tree.k === "ref") return { s: `[${tree.ref}]`, p: PREC_ATOM };
   if (tree.k === "fn") {
-    return { s: `${tree.name}(${tree.args.map((a) => emitAst(a).s).join(", ")})`, p: PREC_ATOM };
+    const args = tree.args.map((a) => emitAst(a).s);
+    if (tree.period) args.push(tree.period);
+    return { s: `${tree.name}(${args.join(", ")})`, p: PREC_ATOM };
   }
   if (tree.k === "neg") {
     const inner = emitAst(tree.a);
@@ -181,9 +194,10 @@ function emitAst(tree) {
     left = a.p < PREC_NEG ? `(${a.s})` : a.s;      // base: a unary or an atom
     right = b.p < p ? `(${b.s})` : b.s;            // exponent: may chain
   } else {
-    left = a.p < p ? `(${a.s})` : a.s;
+    // Comparisons do not chain: one inside another is bracketed either side.
+    left = (p === 0 ? a.p <= p : a.p < p) ? `(${a.s})` : a.s;
     // - and / are not associative: a - (b - c) keeps its brackets.
-    const strict = tree.op === "-" || tree.op === "/";
+    const strict = tree.op === "-" || tree.op === "/" || p === 0;
     right = (strict ? b.p <= p : b.p < p) ? `(${b.s})` : b.s;
   }
   const sign = tree.op === "^" ? "^" : ` ${tree.op} `;

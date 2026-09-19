@@ -13,6 +13,9 @@ dependencies = [
     "fastapi>=0.100",
     "uvicorn[standard]>=0.23",
     "numpy>=1.24",
+    # Calendar days for total() are local; Windows has no zone database of
+    # its own for zoneinfo to read.
+    "tzdata; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

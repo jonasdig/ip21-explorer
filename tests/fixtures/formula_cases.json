@@ -1,27 +1,177 @@
 {
-  "about": "Formulas both parsers must read the same way: static/formula.js in the browser and calc/parser.py on the server. 'refs' lists the references in order; 'error' is the exact message. Checked by tests/test_calc.py, and in the browser against window.ip21.parseFormula from the console.",
-  "ok": [
-    {"text": "=[TI-101] - [TI-201]", "refs": ["TI-101", "TI-201"]},
-    {"text": "=2^3^2 + [A]", "refs": ["A"]},
-    {"text": "=-[A]^2", "refs": ["A"]},
-    {"text": "=([A] + [B]) * [C]", "refs": ["A", "B", "C"]},
-    {"text": "=[A] - ([B] - [C])", "refs": ["A", "B", "C"]},
-    {"text": "=avg([A], [B], [C])", "refs": ["A", "B", "C"]},
-    {"text": "=sqrt(abs([A] - [B])) / 2", "refs": ["A", "B"]},
-    {"text": "=TI-101 * 2", "refs": ["TI-101"]},
-    {"text": "=[LIC-1;IP_AnalogMap] + 1.5e2", "refs": ["LIC-1;IP_AnalogMap"]},
-    {"text": " = [A]+[A]", "refs": ["A"]}
-  ],
-  "error": [
-    {"text": "=", "error": "empty formula"},
-    {"text": "=2 * 3", "error": "a formula needs at least one tag, e.g. =[TI-101] * 2"},
-    {"text": "=[A", "error": "missing \"]\" after position 1"},
-    {"text": "=[] + 1", "error": "empty [] at 1"},
-    {"text": "=[A] + ", "error": "the expression ends too early"},
-    {"text": "=([A] + 1", "error": "expected \")\" at the end"},
-    {"text": "=[A] 2", "error": "unexpected \"2\" at 5"},
-    {"text": "=foo([A])", "error": "unknown function \"foo\" - try abs, sqrt, ln, log10, exp, round, min, max, avg"},
-    {"text": "=abs([A], [B])", "error": "abs() takes one argument"},
-    {"text": "=[A] % 2", "error": "unexpected \"%\" at 5"}
-  ]
+ "about": "Formulas both parsers must read the same way: static/formula.js in the browser and calc/parser.py on the server. 'refs' lists the references in order; 'error' is the exact message. Checked by tests/test_calc.py, and in the browser against window.ip21.parseFormula from the console.",
+ "ok": [
+  {
+   "text": "=[TI-101] - [TI-201]",
+   "refs": [
+    "TI-101",
+    "TI-201"
+   ]
+  },
+  {
+   "text": "=2^3^2 + [A]",
+   "refs": [
+    "A"
+   ]
+  },
+  {
+   "text": "=-[A]^2",
+   "refs": [
+    "A"
+   ]
+  },
+  {
+   "text": "=([A] + [B]) * [C]",
+   "refs": [
+    "A",
+    "B",
+    "C"
+   ]
+  },
+  {
+   "text": "=[A] - ([B] - [C])",
+   "refs": [
+    "A",
+    "B",
+    "C"
+   ]
+  },
+  {
+   "text": "=avg([A], [B], [C])",
+   "refs": [
+    "A",
+    "B",
+    "C"
+   ]
+  },
+  {
+   "text": "=sqrt(abs([A] - [B])) / 2",
+   "refs": [
+    "A",
+    "B"
+   ]
+  },
+  {
+   "text": "=TI-101 * 2",
+   "refs": [
+    "TI-101"
+   ]
+  },
+  {
+   "text": "=[LIC-1;IP_AnalogMap] + 1.5e2",
+   "refs": [
+    "LIC-1;IP_AnalogMap"
+   ]
+  },
+  {
+   "text": " = [A]+[A]",
+   "refs": [
+    "A"
+   ]
+  },
+  {
+   "text": "=[FI-104] > 5",
+   "refs": [
+    "FI-104"
+   ]
+  },
+  {
+   "text": "=[A] + 1 >= [B] * 2",
+   "refs": [
+    "A",
+    "B"
+   ]
+  },
+  {
+   "text": "=([A] < 3) * 10",
+   "refs": [
+    "A"
+   ]
+  },
+  {
+   "text": "=total([FI-104], day)",
+   "refs": [
+    "FI-104"
+   ]
+  },
+  {
+   "text": "=total([FI-104] > 5, month) / 24",
+   "refs": [
+    "FI-104"
+   ]
+  },
+  {
+   "text": "=total([A] <= [B], year)",
+   "refs": [
+    "A",
+    "B"
+   ]
+  }
+ ],
+ "error": [
+  {
+   "text": "=",
+   "error": "empty formula"
+  },
+  {
+   "text": "=2 * 3",
+   "error": "a formula needs at least one tag, e.g. =[TI-101] * 2"
+  },
+  {
+   "text": "=[A",
+   "error": "missing \"]\" after position 1"
+  },
+  {
+   "text": "=[] + 1",
+   "error": "empty [] at 1"
+  },
+  {
+   "text": "=[A] + ",
+   "error": "the expression ends too early"
+  },
+  {
+   "text": "=([A] + 1",
+   "error": "expected \")\" at the end"
+  },
+  {
+   "text": "=[A] 2",
+   "error": "unexpected \"2\" at 5"
+  },
+  {
+   "text": "=foo([A])",
+   "error": "unknown function \"foo\" - try abs, sqrt, ln, log10, exp, round, min, max, avg, total"
+  },
+  {
+   "text": "=abs([A], [B])",
+   "error": "abs() takes one argument"
+  },
+  {
+   "text": "=[A] % 2",
+   "error": "unexpected \"%\" at 5"
+  },
+  {
+   "text": "=[A] > 1 > 2",
+   "error": "unexpected \">\" at 9"
+  },
+  {
+   "text": "=total([A])",
+   "error": "total() needs a period: hour, day, week, month or year"
+  },
+  {
+   "text": "=total([A], days)",
+   "error": "\"days\" is not a period - use hour, day, week, month or year"
+  },
+  {
+   "text": "=total([A], 3)",
+   "error": "\"3\" is not a period - use hour, day, week, month or year"
+  },
+  {
+   "text": "=total([A], day, 2)",
+   "error": "expected \")\" at 15"
+  },
+  {
+   "text": "=[A] =< 2",
+   "error": "unexpected \"=\" at 5"
+  }
+ ]
 }

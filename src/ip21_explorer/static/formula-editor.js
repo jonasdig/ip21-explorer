@@ -10,7 +10,7 @@ import { apiSearchTags } from "./api.js";
 import { xAxisValues } from "./chart.js";
 import { isComputed, previewFormulas } from "./computed.js";
 import { MIN_QUERY_LEN, SEARCH_DEBOUNCE_MS } from "./constants.js";
-import { FUNCTION_NAMES } from "./formula.js";
+import { FUNCTION_NAMES, PERIODS } from "./formula.js";
 import {
   emptyGraph, graphFromText, inputPorts, isVariadic, layoutGraph,
   newNode, nodeLabel, textFromGraph,
@@ -214,7 +214,12 @@ function paletteBlocks() {
     ["÷", { type: "op", op: "/" }],
     ["^", { type: "op", op: "^" }],
     ["−x", { type: "neg" }],
-  ].concat(FUNCTION_NAMES.map((name) => [name, { type: "fn", name }]));
+    [">", { type: "op", op: ">" }],
+    ["<", { type: "op", op: "<" }],
+    ["≥", { type: "op", op: ">=" }],
+    ["≤", { type: "op", op: "<=" }],
+  ].concat(FUNCTION_NAMES.map((name) => [name,
+    name === "total" ? { type: "fn", name, period: "day" } : { type: "fn", name }]));
 }
 
 // The rows on the tab, for quick access: their bare request name is what a
@@ -354,6 +359,20 @@ function buildNode(node) {
     content.appendChild(el("span", "big", "="));
   } else {
     content.appendChild(el("span", "big", nodeLabel(node)));
+    // A total sums over calendar periods: which one is the block's own choice.
+    if (node.type === "fn" && node.name === "total") {
+      const period = el("select", "period");
+      for (const name of PERIODS) {
+        const opt = el("option", null, `per ${name}`);
+        opt.value = name;
+        period.appendChild(opt);
+      }
+      period.value = node.period || "day";
+      period.title = "Sum per calendar period, of the input read as a rate per hour";
+      period.addEventListener("pointerdown", (e) => e.stopPropagation());
+      period.addEventListener("change", () => { node.period = period.value; refreshText(); });
+      content.appendChild(period);
+    }
   }
   content.appendChild(el("span", "val"));
   main.appendChild(content);

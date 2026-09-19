@@ -218,7 +218,8 @@ def create_app(source: Optional[DataSource] = None, settings: Optional[Settings]
         points = max(10, min(20000, points))
 
         began = time.monotonic()
-        results = await asyncio.to_thread(compute, source, items, start_s, end_s, points)
+        results = await asyncio.to_thread(
+            compute, source, items, start_s, end_s, points, settings.timezone)
         logger.info("computed %d formula%s in %.1f s", len(items),
                     "" if len(items) == 1 else "s", time.monotonic() - began)
         series, errors = {}, {}

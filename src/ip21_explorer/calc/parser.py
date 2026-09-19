@@ -10,6 +10,7 @@ the same shapes, as plain dicts:
     {"k": "neg", "a": node}
     {"k": "bin", "op": "+", "a": node, "b": node}
     {"k": "fn", "name": "avg", "args": [node, ...]}
+    {"k": "fn", "name": "total", "args": [node], "period": "day"}
 
 Error messages match the browser's word for word, positions included.
 """
@@ -34,14 +35,23 @@ FUNCTIONS: Dict[str, bool] = {
     "min": True,
     "max": True,
     "avg": True,
+    "total": False,
 }
+
+# total(expression, period): the expression read as a rate per hour, summed
+# over each calendar period. The period is a word, not a tag.
+PERIODS = ("hour", "day", "week", "month", "year")
+PERIOD_LIST = "hour, day, week, month or year"
+
+# Comparisons give 1 or 0 and bind loosest of all; two in a row is an error.
+COMPARE = (">=", "<=", ">", "<")
 
 NUM_AT = re.compile(r"\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", re.ASCII)
 # A bare name may contain hyphens, because every other IP21 tag does: that
 # makes "=TI-101-TI-201" one name rather than a subtraction, which is what the
 # brackets are for.
 NAME_AT = re.compile(r"[A-Za-z_][\w.-]*(?:;[\w.\- ]*)?", re.ASCII)
-SINGLE = "+-*/^(),"
+SINGLE = "+-*/^(),<>"
 
 
 class FormulaError(ValueError):
@@ -84,6 +94,10 @@ def tokenize(text: str) -> List[Token]:
             out.append(Token("ref", ref, i))
             i = end + 1
             continue
+        if text[i:i + 2] in (">=", "<="):
+            out.append(Token(text[i:i + 2], text[i:i + 2], i))
+            i += 2
+            continue
         if c in SINGLE:
             out.append(Token(c, c, i))
             i += 1
@@ -117,6 +131,14 @@ class _Parser:
             raise FormulaError(f'expected "{kind}" {where}')
         self.i += 1
         return token
+
+    def compare(self) -> Node:
+        node = self.expr()
+        following = self.peek()
+        if following and following.t in COMPARE:
+            self.i += 1
+            return {"k": "bin", "op": following.t, "a": node, "b": self.expr()}
+        return node
 
     def expr(self) -> Node:
         node = self.term()
@@ -163,7 +185,7 @@ class _Parser:
             return {"k": "ref", "ref": token.v, "bare": False}
         if token.t == "(":
             self.i += 1
-            node = self.expr()
+            node = self.compare()
             self.eat(")")
             return node
         if token.t == "name":
@@ -177,15 +199,32 @@ class _Parser:
                     f'unknown function "{token.v}" - try {", ".join(FUNCTIONS)}'
                 )
             self.i += 1
-            args = [self.expr()]
+            if token.v == "total":
+                return self.total()
+            args = [self.compare()]
             while self.peek() and self.peek().t == ",":
                 self.i += 1
-                args.append(self.expr())
+                args.append(self.compare())
             self.eat(")")
             if len(args) > 1 and not FUNCTIONS[token.v]:
                 raise FormulaError(f"{token.v}() takes one argument")
             return {"k": "fn", "name": token.v, "args": args}
         raise FormulaError(f'unexpected "{token.v}" at {token.i + 1}')
+
+    # After "total(": the expression, a comma, and a period word.
+    def total(self) -> Node:
+        arg = self.compare()
+        comma = self.peek()
+        if comma is None or comma.t != ",":
+            raise FormulaError(f"total() needs a period: {PERIOD_LIST}")
+        self.i += 1
+        word = self.peek()
+        if word is None or word.t != "name" or word.v not in PERIODS:
+            said = f'"{word.v}"' if word else "nothing"
+            raise FormulaError(f"{said} is not a period - use {PERIOD_LIST}")
+        self.i += 1
+        self.eat(")")
+        return {"k": "fn", "name": "total", "args": [arg], "period": word.v}
 
 
 def _collect_refs(node: Node, out: List[str], bare: Set[str]) -> None:
@@ -211,7 +250,7 @@ def parse_formula(text: str) -> Parsed:
     if not body.strip():
         raise FormulaError("empty formula")
     parser = _Parser(tokenize(body))
-    node = parser.expr()
+    node = parser.compare()
     left = parser.peek()
     if left is not None:
         raise FormulaError(f'unexpected "{left.v}" at {left.i + 1}')

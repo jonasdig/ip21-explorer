@@ -846,6 +846,7 @@ dialog h3 { margin: 0 0 10px 0; }
 #formula-editor .fe-node .content input { width: 130px; font-size: 12px; }
 #formula-editor .fe-node.num .content input { width: 70px; text-align: right; }
 #formula-editor .fe-node .big { font-size: 18px; font-weight: 600; }
+#formula-editor .fe-node .content select.period { font-size: 11px; height: 22px; }
 #formula-editor .fe-node .val {
   font-size: 11px;
   color: #ffd54f;

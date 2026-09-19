@@ -18,10 +18,20 @@ export function isFormula(name) {
 // message lists them (calc/parser.py lists them the same way). The block
 // editor offers every one and needs to know which take several inputs.
 export const FUNCTION_NAMES = [
-  "abs", "sqrt", "ln", "log10", "exp", "round", "min", "max", "avg",
+  "abs", "sqrt", "ln", "log10", "exp", "round", "min", "max", "avg", "total",
 ];
 const MULTI = new Set(["min", "max", "avg"]);
 export function takesMany(name) { return MULTI.has(name); }
+
+// total(expression, period): the expression read as a rate per hour, summed
+// over each calendar period - m3/h becomes m3 per day, a comparison (1 or 0)
+// becomes hours per day. The period is a word, not a tag.
+export const PERIODS = ["hour", "day", "week", "month", "year"];
+const PERIOD_LIST = "hour, day, week, month or year";
+
+// Comparisons give 1 or 0, and bind loosest of all: [A] + 1 > [B] compares
+// the sum. Two in a row is not a thing a formula needs, so it is an error.
+const COMPARE = [">=", "<=", ">", "<"];
 
 // Sticky, so the tokenizer can match at a position rather than search from it.
 const NUM_AT = /\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
@@ -46,7 +56,9 @@ function tokenize(text) {
       i = end + 1;
       continue;
     }
-    if ("+-*/^(),".includes(c)) { out.push({ t: c, v: c, i }); i += 1; continue; }
+    const two = text.slice(i, i + 2);
+    if (two === ">=" || two === "<=") { out.push({ t: two, v: two, i }); i += 2; continue; }
+    if ("+-*/^(),<>".includes(c)) { out.push({ t: c, v: c, i }); i += 1; continue; }
     NUM_AT.lastIndex = i;
     const num = NUM_AT.exec(text);
     if (num) { out.push({ t: "num", v: num[0], i }); i += num[0].length; continue; }
@@ -68,6 +80,16 @@ function eat(p, type) {
   }
   p.i += 1;
   return token;
+}
+
+function parseCompare(p) {
+  const node = parseExpr(p);
+  const next = peek(p);
+  if (next && COMPARE.includes(next.t)) {
+    p.i += 1;
+    return { k: "bin", op: next.t, a: node, b: parseExpr(p) };
+  }
+  return node;
 }
 
 function parseExpr(p) {
@@ -115,7 +137,7 @@ function parsePrimary(p) {
   if (token.t === "ref") { p.i += 1; return { k: "ref", ref: token.v, bare: false }; }
   if (token.t === "(") {
     p.i += 1;
-    const node = parseExpr(p);
+    const node = parseCompare(p);
     eat(p, ")");
     return node;
   }
@@ -128,8 +150,9 @@ function parsePrimary(p) {
       throw new Error(`unknown function "${token.v}" - try ${FUNCTION_NAMES.join(", ")}`);
     }
     p.i += 1;
-    const args = [parseExpr(p)];
-    while (peek(p) && peek(p).t === ",") { p.i += 1; args.push(parseExpr(p)); }
+    if (token.v === "total") return parseTotal(p);
+    const args = [parseCompare(p)];
+    while (peek(p) && peek(p).t === ",") { p.i += 1; args.push(parseCompare(p)); }
     eat(p, ")");
     if (args.length > 1 && !MULTI.has(token.v)) {
       throw new Error(`${token.v}() takes one argument`);
@@ -137,6 +160,22 @@ function parsePrimary(p) {
     return { k: "fn", name: token.v, args };
   }
   throw new Error(`unexpected "${token.v}" at ${token.i + 1}`);
+}
+
+// After "total(": the expression, a comma, and a period word.
+function parseTotal(p) {
+  const arg = parseCompare(p);
+  const comma = peek(p);
+  if (!comma || comma.t !== ",") throw new Error(`total() needs a period: ${PERIOD_LIST}`);
+  p.i += 1;
+  const word = peek(p);
+  if (!word || word.t !== "name" || !PERIODS.includes(word.v)) {
+    const said = word ? `"${word.v}"` : "nothing";
+    throw new Error(`${said} is not a period - use ${PERIOD_LIST}`);
+  }
+  p.i += 1;
+  eat(p, ")");
+  return { k: "fn", name: "total", args: [arg], period: word.v };
 }
 
 function collectRefs(node, out, bare) {
@@ -155,7 +194,7 @@ export function parseFormula(text) {
   const body = String(text).trim().replace(/^=/, "");
   if (!body.trim()) throw new Error("empty formula");
   const p = { tokens: tokenize(body), i: 0 };
-  const node = parseExpr(p);
+  const node = parseCompare(p);
   const left = peek(p);
   if (left) throw new Error(`unexpected "${left.v}" at ${left.i + 1}`);
   const refs = [];

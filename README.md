@@ -29,7 +29,9 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   `Alt`+`↑`/`↓`), which is also the order the stacked axis gutter and the
   scooter readouts use, so related tags can be grouped. Drag its top edge to
   trade height with the plot — all the way down leaves just the column
-  headings
+  headings. Drag a heading to move its column, or its right edge to size it
+  (double-click the edge, or *Reset columns* in the heading's menu, for the
+  defaults back)
 - **Per-tag colour**: tags get distinct colorblind-friendly colors
   automatically; pick another from the palette — or any colour at all — in the
   table's colour cell
@@ -47,6 +49,9 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   other tags rather than a tag of its own — `=[TI-101] - [TI-201]`,
   `=([FI-104]*2)^0.5`, `=avg([TI-101],[TI-201],[TI-301])` — with `+ - * / ^`,
   parentheses, numbers, and `abs, sqrt, min, max, avg, ln, log10, exp, round`.
+  Comparisons `> < >= <=` give 1 or 0. Formulas are computed on the server
+  (`calc/`), which keeps the tags it has just read for a couple of minutes, so
+  editing a formula does not make the historian read them again
   References go in brackets (`;MAP` works inside them), because every IP21 tag
   has a hyphen in it and `=TI-101-TI-201` would otherwise be one name. A
   reference with no row of its own is fetched quietly in the same request as
@@ -54,12 +59,23 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
   Formulas may refer to other formulas by their description, and a cycle says
   so by name. Give the row a unit and a short name in the Unit and Description
   cells and that is what the readouts and the CSV use
+- **Totals per calendar period**: `total(expression, period)` reads the
+  expression as a rate per hour and sums it per `hour`, `day`, `week`
+  (Monday first), `month` or `year` in local time (`IP21_TZ`), drawn as one
+  step per period. `=total([FI-104], day)` turns m3/h into m3 per day;
+  `=total([FI-104] > 5, day)` counts the hours a pump ran. The tags inside are
+  read as time-weighted averages (AVG), at 1 min for windows up to about a
+  month and coarser beyond (at most 50 000 points per tag), over whole
+  periods — a day that started before the window counts in full, and today's
+  total is so far. A rate per second needs `* 3600`
 - **Formula blocks**: the same formulas, built by dragging blocks - tags,
-  numbers, the arithmetic and every function - onto a canvas and wiring them
-  together. Open it with the *ƒ* after any row's tag name (the blank row's starts from scratch), or *Edit visually* /
+  numbers, the arithmetic, comparisons and every function (a *total* block
+  picks its period from a list) - onto a canvas and wiring them
+  together, from an output to an input or the other way. Open it with the *ƒ*
+  after any row's tag name (the blank row's starts from scratch), or *Edit visually* /
   *New formula from this tag* in a row's right-click menu. Tags can be
-  searched for right there, including ones that are not on the plot - their
-  data is fetched for the preview straight away; `+`, `×`, `min`, `max` and
+  searched for right there, including ones that are not on the plot - the
+  server reads them for the preview straight away; `+`, `×`, `min`, `max` and
   `avg` take any number of inputs. A preview trend shows the result, or the
   block whose ◉ is lit, and hovering over it shows every block's value at
   that moment, so a long formula shows where it goes wrong. The text stays the truth: Apply
@@ -227,8 +243,15 @@ that, when one Ctrl+F5 clears the copy the browser cached on its own.
 
 ```
 src/ip21_explorer/
-  main.py              FastAPI app: /api/tags, /api/data, /api/plots + static files
+  main.py              FastAPI app: /api/tags, /api/data, /api/compute, /api/plots + static files
   config.py            Settings from env vars / CLI
+  calc/                Formulas, independent of the web app (so an alarm service can use it)
+    parser.py          "=" expressions, the same grammar as static/formula.js
+    align.py           Reading a series at a time it has no sample of
+    evaluate.py        An expression over aligned columns
+    periods.py         Local calendar hours, days, weeks, months, years
+    engine.py          compute(): reads the tags, evaluates, total()
+    cache.py           CachedSource: recent reads kept for a couple of minutes
   sources/
     base.py            DataSource protocol, SampleType (INT/AVG/MIN/MAX)
     simulator.py       Deterministic synthetic trends (dev/testing)
@@ -239,9 +262,9 @@ src/ip21_explorer/
     api.js, data.js    Server API wrappers; fetching and joining trend data
     chart.js           uPlot chart; axis-gutter.js draws the stacked axis
     tags.js            Adding/removing tags, units, the tag setter
-    formula.js         "=" expressions: parser and evaluator (imports nothing)
-    resample.js        Reading a series at a time it has no sample of
-    computed.js        Formula rows: references, order, evaluation
+    formula.js         "=" expressions: the parser, for blocks and errors while typing
+    resample.js        Reading a series at a time it has no sample of (XY, previews)
+    computed.js        Formula rows: references, order, asking the server
     formula-graph.js   Formulas as blocks and wires, and back to text
     formula-editor.js  The block editor window
     xy-chart.js        XY plot, time colour ramp and its legend
@@ -253,7 +276,8 @@ src/ip21_explorer/
     menu.js            Context menus      clipboard.js   Copy/paste tags
     analysis.js        CSV, averages      timefields.js  Time fields, calendar
     constants.js, util.js
-tests/                 Simulator, API and frontend module tests (pytest)
+tests/                 Simulator, API, formula and frontend module tests (pytest);
+                       fixtures/formula_cases.json holds both parsers to the same answers
 ```
 
 The two data sources implement the same small protocol, so the entire app is

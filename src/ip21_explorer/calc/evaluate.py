@@ -4,6 +4,7 @@ A hole (NaN) anywhere is a hole in the answer, and so is anything that stops
 being a finite number on the way - x/0, sqrt of a negative, ln(0). The
 multi-argument functions skip holes, so one tag with a gap does not blank the
 average of five; the single-argument ones pass a hole straight through.
+Comparisons give 1 or 0, or a hole when either side is one.
 """
 from __future__ import annotations
 
@@ -51,9 +52,24 @@ def _multi(name: str, stack: np.ndarray) -> np.ndarray:
     return out
 
 
+def _compare(op: str, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    if op == ">":
+        out = a > b
+    elif op == "<":
+        out = a < b
+    elif op == ">=":
+        out = a >= b
+    else:
+        out = a <= b
+    out = out.astype(float)
+    out[np.isnan(a) | np.isnan(b)] = np.nan
+    return out
+
+
 def evaluate(node: Node, column: Callable[[Node], Column], size: int) -> Column:
     """The expression's values on a grid of `size` timestamps. `column(node)`
-    gives the values of a leaf - a tag reference - on that grid."""
+    gives the values of a leaf on that grid: a tag reference, or a time
+    function (total) that the engine has already computed over its periods."""
     with np.errstate(all="ignore"):
         return _eval(node, column, size)
 
@@ -62,7 +78,7 @@ def _eval(node: Node, column: Callable[[Node], Column], size: int) -> Column:
     kind = node["k"]
     if kind == "num":
         return np.full(size, float(node["v"]))
-    if kind == "ref":
+    if kind == "ref" or (kind == "fn" and node["name"] == "total"):
         return np.asarray(column(node), dtype=float)
     if kind == "neg":
         return -_eval(node["a"], column, size)
@@ -78,8 +94,10 @@ def _eval(node: Node, column: Callable[[Node], Column], size: int) -> Column:
             out = a * b
         elif op == "/":
             out = a / b
-        else:
+        elif op == "^":
             out = np.power(a, b)
+        else:
+            out = _compare(op, a, b)
         return _finite(out)
     if kind == "fn":
         args = [_eval(arg, column, size) for arg in node["args"]]

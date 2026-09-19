@@ -16,9 +16,11 @@ condition to raise an alarm - can compute the same items the same way.
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -26,6 +28,7 @@ from ..sources.base import DataSource, SampleType
 from .align import align_onto, union_times
 from .evaluate import evaluate
 from .parser import FormulaError, Node, Parsed, parse_formula, resolve_hint
+from .periods import period_bounds
 
 logger = logging.getLogger("ip21_explorer")
 
@@ -39,6 +42,14 @@ NICE_INTERVALS = [
 
 # Sample/interval groups read from the historian at the same time.
 READ_GROUPS_AT_ONCE = 4
+
+# What a time function reads its tags with: time-weighted averages, whose sum
+# times the bucket length is exactly the quantity that passed, at the finest
+# of these intervals that keeps a tag under TOTAL_MAX_POINTS over the window.
+# Every one divides an hour, so buckets never straddle a period boundary.
+TOTAL_SAMPLE = "AVG"
+TOTAL_INTERVALS = [60, 300, 600, 900, 1800, 3600]
+TOTAL_MAX_POINTS = 50_000
 
 
 def auto_interval(span_s: float, points: int) -> float:
@@ -62,12 +73,44 @@ class Result:
 
 @dataclass(frozen=True)
 class Window:
-    """Where and how a tag is read: the plot's own window and sampling, or
-    (later) a coarser one of a time function's own."""
+    """Where and how a tag is read: the plot's own window and each tag's own
+    sampling, or a time function's window with the sampling it needs."""
     start: float
     end: float
     sample: Optional[str] = None      # overrides a reference's own when set
     interval_s: Optional[float] = None
+
+
+def total_window(window: Window, period: str, zone: ZoneInfo,
+                 now: float) -> Tuple[Window, List[float]]:
+    """The window a total() reads over - stretched to whole periods, but not
+    past now, where there is nothing to read - and its period boundaries."""
+    bounds = period_bounds(window.start, window.end, period, zone)
+    end = min(bounds[-1], max(window.end, now))
+    bounds = [b for b in bounds if b < end] + [end]
+    span = end - bounds[0]
+    interval_s = next((float(i) for i in TOTAL_INTERVALS if span / i <= TOTAL_MAX_POINTS),
+                      float(TOTAL_INTERVALS[-1]))
+    return Window(bounds[0], end, TOTAL_SAMPLE, interval_s), bounds
+
+
+def sum_periods(t: np.ndarray, v: np.ndarray, bucket_s: float,
+                bounds: List[float]) -> Tuple[np.ndarray, np.ndarray]:
+    """Sum of value x hours per period, from samples that each stand for the
+    time up to the next one (at most one bucket). A period with no samples is
+    a hole. The answer has a point at every period start, and one more at the
+    end of the last, so a stepped line covers the whole of the last period."""
+    edges = np.asarray(bounds, dtype=float)
+    sums = np.full(len(edges) - 1, np.nan)
+    if len(t):
+        until = np.append(t[1:], np.inf)
+        weight_h = (np.minimum(until, np.minimum(t + bucket_s, edges[-1])) - t) / 3600.0
+        live = ~np.isnan(v) & (weight_h > 0) & (t >= edges[0]) & (t < edges[-1])
+        index = np.searchsorted(edges, t[live], side="right") - 1
+        totals = np.bincount(index, weights=v[live] * weight_h[live], minlength=len(sums))
+        counts = np.bincount(index, minlength=len(sums))
+        sums[counts > 0] = totals[counts > 0]
+    return edges, np.append(sums, sums[-1] if len(sums) else np.nan)
 
 
 # One read from the historian: (tag, sample, interval_s, start, end).
@@ -83,8 +126,10 @@ class RefError(Exception):
 
 class _Computation:
     def __init__(self, source: DataSource, items: Sequence[Dict[str, Any]],
-                 start: float, end: float, points: int):
+                 start: float, end: float, points: int, zone: ZoneInfo, now: float):
         self.source = source
+        self.zone = zone
+        self.now = now
         self.items = {str(item["id"]): item for item in items}
         self.points = points
         self.window = Window(start, end)
@@ -137,6 +182,9 @@ class _Computation:
         elif kind == "bin":
             yield from self._needs_node(node["a"], refs, window, seen)
             yield from self._needs_node(node["b"], refs, window, seen)
+        elif kind == "fn" and node["name"] == "total":
+            inner, _ = total_window(window, node["period"], self.zone, self.now)
+            yield from self._needs_node(node["args"][0], refs, inner, seen)
         elif kind == "fn":
             for arg in node["args"]:
                 yield from self._needs_node(arg, refs, window, seen)
@@ -204,17 +252,40 @@ class _Computation:
     def _evaluate(self, item_id: str, window: Window) -> Result:
         parsed = self.parsed[item_id]
         refs = self.items[item_id].get("refs") or {}
-        leaves: Dict[str, Tuple[np.ndarray, np.ndarray, bool]] = {}
-        for ref in parsed.refs:
-            leaves[ref] = self._ref_series(ref, refs.get(ref), parsed, window)
+        t, v, step = self._series(parsed.node, refs, parsed, window)
+        error = None if np.any(~np.isnan(v)) else ("no result in this window", False)
+        return Result(t, v, step, error)
+
+    def _series(self, node: Node, refs: Dict[str, Any], parsed: Parsed,
+                window: Window) -> Tuple[np.ndarray, np.ndarray, bool]:
+        """An expression over a window: its leaves - references, and totals
+        computed over their own periods - read onto one grid, then evaluated."""
+        leaves: Dict[Any, Tuple[np.ndarray, np.ndarray, bool]] = {}
+        for leaf in _leaves(node):
+            if leaf["k"] == "ref":
+                ref = leaf["ref"]
+                if ref not in leaves:
+                    leaves[ref] = self._ref_series(ref, refs.get(ref), parsed, window)
+            else:
+                leaves[id(leaf)] = self._total(leaf, refs, parsed, window)
 
         grid = union_times([t for t, _, _ in leaves.values()])
         columns = dict(zip(leaves, align_onto(list(leaves.values()), grid)))
-        values = evaluate(parsed.node, lambda node: columns[node["ref"]], len(grid))
-        values = np.array(values, dtype=float, copy=True)
-        step = all(s for _, _, s in leaves.values())
-        error = None if np.any(~np.isnan(values)) else ("no result in this window", False)
-        return Result(np.array(grid, dtype=float, copy=True), values, step, error)
+
+        def column(leaf: Node) -> np.ndarray:
+            return columns[leaf["ref"] if leaf["k"] == "ref" else id(leaf)]
+
+        values = evaluate(node, column, len(grid))
+        step = bool(leaves) and all(s for _, _, s in leaves.values())
+        return (np.array(grid, dtype=float, copy=True),
+                np.array(values, dtype=float, copy=True), step)
+
+    def _total(self, node: Node, refs: Dict[str, Any], parsed: Parsed,
+               window: Window) -> Tuple[np.ndarray, np.ndarray, bool]:
+        inner, bounds = total_window(window, node["period"], self.zone, self.now)
+        t, v, _ = self._series(node["args"][0], refs, parsed, inner)
+        edges, sums = sum_periods(t, v, inner.interval_s, bounds)
+        return edges, sums, True
 
     def _ref_series(self, ref: str, spec: Optional[Dict[str, Any]], parsed: Parsed,
                     window: Window) -> Tuple[np.ndarray, np.ndarray, bool]:
@@ -237,6 +308,22 @@ class _Computation:
         return series[0], series[1], bool(spec.get("step"))
 
 
+def _leaves(node: Node) -> Iterator[Node]:
+    """References and totals, not looking inside a total: what is in there is
+    read over the total's own window, not this one."""
+    kind = node["k"]
+    if kind == "ref" or (kind == "fn" and node["name"] == "total"):
+        yield node
+    elif kind == "neg":
+        yield from _leaves(node["a"])
+    elif kind == "bin":
+        yield from _leaves(node["a"])
+        yield from _leaves(node["b"])
+    elif kind == "fn":
+        for arg in node["args"]:
+            yield from _leaves(arg)
+
+
 def _empty() -> np.ndarray:
     return np.array([], dtype=float)
 
@@ -249,9 +336,12 @@ def _message(exc: Exception) -> str:
 
 
 def compute(source: DataSource, items: Sequence[Dict[str, Any]], start: float,
-            end: float, points: int = 1500) -> Dict[str, Result]:
-    """Every item's series over [start, end], or its error."""
-    run = _Computation(source, items, start, end, points)
+            end: float, points: int = 1500, timezone: str = "Europe/Oslo",
+            now: Optional[float] = None) -> Dict[str, Result]:
+    """Every item's series over [start, end], or its error. Calendar periods
+    (for total) are in `timezone`."""
+    run = _Computation(source, items, start, end, points, ZoneInfo(timezone),
+                       time.time() if now is None else now)
     keys: List[ReadKey] = []
     for item_id in run.items:
         keys.extend(run.needs(item_id, run.window))
