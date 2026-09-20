@@ -323,6 +323,10 @@ function blockHelp(node) {
   const own = BLOCK_HELP[helpKey(node)];
   if (own) return own;
   const long = (spec.long || []).slice();
+  for (const about of spec.inputNames || []) {
+    if ((spec.inputNames || []).length < 2) break;
+    long.push(`Input ${about.name} - ${about.label || about.help}`);
+  }
   for (const param of spec.params || []) {
     const shown = [param.label || param.name, param.help].filter(Boolean).join(": ");
     long.push(`${param.name} - ${shown}${param.default != null ? ` (default ${param.default})` : ""}`);
@@ -400,8 +404,10 @@ function buildNode(node) {
   box.style.top = `${node.y}px`;
 
   const head = el("div", "head");
-  head.appendChild(el("span", "label", node.type === "tag" ? "Tag"
-    : node.type === "num" ? "Number" : nodeLabel(node)));
+  const heading = el("span", "label", node.type === "tag" ? "Tag"
+    : node.type === "num" ? "Number" : nodeLabel(node));
+  heading.title = heading.textContent;
+  head.appendChild(heading);
   // A "?" only where a line of tooltip is not enough.
   const help = blockHelp(node);
   if (help && help.long) {
@@ -440,14 +446,26 @@ function buildNode(node) {
   const main = el("div", "main");
   const ins = el("div", "ins");
   const count = inputPorts(session.graph, node);
+  const named = inputNames(node, count);
   for (let port = 0; port < count; port++) {
+    const row = el("div", "in-row");
     const dot = el("span", "port in");
     dot.dataset.port = String(port);
     const wired = session.graph.wires.some((w) => w.to === node.id && w.port === port);
     dot.classList.toggle("wired", wired);
-    dot.title = isVariadic(node) && !wired ? "Wire another input here" : "Input";
+    const about = named[port];
+    dot.title = isVariadic(node) && !wired ? "Wire another input here"
+      : about ? aboutText(about) : "Input";
     dot.addEventListener("pointerdown", (e) => pickUpWire(e, node, port));
-    ins.appendChild(dot);
+    row.appendChild(dot);
+    // A block with several inputs has to say which is which; one input
+    // needs no label.
+    if (about && about.show) {
+      const name = el("span", "in-name", about.name);
+      name.title = dot.title;
+      row.appendChild(name);
+    }
+    ins.appendChild(row);
   }
   main.appendChild(ins);
 
@@ -468,8 +486,12 @@ function buildNode(node) {
   } else if (node.type === "out") {
     content.appendChild(el("span", "big", "="));
   } else {
-    content.appendChild(el("span", "big",
-      node.type === "fn" ? shortName(node.name) : nodeLabel(node)));
+    const big = el("span", "big",
+      node.type === "fn" ? shortName(node.name) : nodeLabel(node));
+    // A library name can run past what the block shows; the whole of it is
+    // a hover away, and behind the "?".
+    if (node.type === "fn") big.title = node.name;
+    content.appendChild(big);
     for (const control of paramControls(node)) content.appendChild(control);
   }
   content.appendChild(el("span", "val"));
@@ -509,6 +531,30 @@ function placeHelp() {
   card.style.maxHeight = `${Math.max(120, up ? above : below)}px`;
 }
 
+// What each input of a block is: the library's own names where it has them,
+// and for our two-sided arithmetic which side is which.
+const SIDES = { "-": ["Upper input (subtracted from)", "Lower input (subtracted)"],
+  "/": ["Upper input (divided)", "Lower input (divides)"],
+  "^": ["Upper input (the base)", "Lower input (the power)"] };
+
+// The tooltip on an input: its name, what the library calls it, and the
+// explanation - each only once, since the shorter ones often repeat.
+function aboutText(about) {
+  const parts = [about.name, about.label, about.help].filter(Boolean);
+  return parts.filter((part, i) => !parts.some((other, k) =>
+    k < i && other.toLowerCase().includes(part.toLowerCase()))).join(" - ");
+}
+
+function inputNames(node, count) {
+  if (node.type === "op" && SIDES[node.op]) {
+    return SIDES[node.op].map((label) => ({ name: "", label, help: "", show: false }));
+  }
+  const spec = node.type === "fn" ? functionSpec(node.name) : null;
+  const names = (spec && spec.inputNames) || [];
+  return Array.from({ length: count }, (_, i) => names[i]
+    && { ...names[i], show: names.length > 1 });
+}
+
 // A function's settings, one control each, built from what the server says
 // the function takes. Their values live on the block and are written after
 // the inputs in the text.
@@ -526,7 +572,7 @@ function paramControls(node) {
     refreshText();
   };
   return (spec.params || []).map((param) => {
-    const row = el("label", "fe-param");
+    const row = el("label", `fe-param ${param.kind}`);
     row.title = [param.label, param.help].filter(Boolean).join(": ");
     let field;
     if (param.kind === "choice") {

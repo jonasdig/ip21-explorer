@@ -49,6 +49,9 @@ class FunctionSpec:
     name: str                # "avg", "smooth.sg"
     group: str               # the palette's heading
     inputs: int              # how many series go in
+    # What each input is, where the library says: a block with several has
+    # to show which is which. Empty for our own, whose inputs need no name.
+    input_params: Tuple[Param, ...] = ()
     params: Tuple[Param, ...] = ()
     short: str = ""
     long: Tuple[str, ...] = ()
@@ -191,6 +194,8 @@ def as_json() -> Dict[str, Any]:
         by_group[spec.group].append({
             "name": spec.name,
             "inputs": spec.inputs,
+            "inputNames": [{"name": p.name, "label": p.label, "help": p.help}
+                           for p in spec.input_params],
             "variadic": spec.variadic,
             "step": spec.step,
             "short": spec.short,

@@ -116,25 +116,46 @@ def _duration_word(seconds: float) -> str:
     return f"{seconds:g}s"
 
 
-# "    name: Label. Rest of the sentence." in a Google-style Args section.
+# "    name: Label" in a Google-style Args section, with the explanation on
+# the lines under it.
 ARG_AT = re.compile(r"^\s{4}(\w+)\s*(?:\([^)]*\))?:\s*(.*)$")
+
+# The documentation is written for Sphinx, so it carries roles and maths that
+# read as noise in a block: "Density [:math:`\mathrm{\frac{kg}{m^3}}`]".
+MATHS_IN_BRACKETS = re.compile(r"\s*\[\s*:math:`[^`]*`\s*\]")
+ROLE = re.compile(r":[a-z]+:`([^`]*)`")
+LATEX_COMMAND = re.compile(r"\\[a-zA-Z]+\s*")
+
+
+def _clean(text: str) -> str:
+    """Documentation as a person reads it, without the Sphinx markup."""
+    out = MATHS_IN_BRACKETS.sub("", text)
+    out = ROLE.sub(r"\1", out)
+    out = LATEX_COMMAND.sub("", out).replace("`", "")
+    out = out.replace("{", "").replace("}", "")
+    return re.sub(r"\s{2,}", " ", out).strip()
 
 
 def _docs(func: Any) -> Tuple[str, List[str], Dict[str, Tuple[str, str]]]:
     """A function's summary, its remaining prose, and one (label, text) per
-    documented argument."""
+    documented argument.
+
+    An Args entry is written as a short label on the first line and the
+    explanation on the lines under it, so they are kept apart - a label is
+    what a block has room for, the rest belongs behind the "?".
+    """
     doc = inspect.getdoc(func) or ""
     lines = doc.splitlines()
-    summary = lines[0].strip().rstrip(".") if lines else ""
+    summary = _clean(lines[0]).rstrip(".") if lines else ""
     prose: List[str] = []
     args: Dict[str, Tuple[str, str]] = {}
     section, current, buffer = "prose", None, []
 
     def flush_arg() -> None:
         if current:
-            text = " ".join(buffer).strip()
-            label, _, rest = text.partition(".")
-            args[current] = (label.strip(), rest.strip() or label.strip())
+            label = _clean(buffer[0]).rstrip(".") if buffer else ""
+            rest = _clean(" ".join(line.strip() for line in buffer[1:]))
+            args[current] = (label, rest or label)
 
     paragraph: List[str] = []
     for line in lines[1:]:
@@ -143,7 +164,7 @@ def _docs(func: Any) -> Tuple[str, List[str], Dict[str, Tuple[str, str]]]:
             flush_arg()
             current, buffer = None, []
             if paragraph:
-                prose.append(" ".join(paragraph))
+                prose.append(_clean(" ".join(paragraph)))
                 paragraph = []
             section = "args" if stripped == "Args:" else "other"
             continue
@@ -151,7 +172,7 @@ def _docs(func: Any) -> Tuple[str, List[str], Dict[str, Tuple[str, str]]]:
             if stripped:
                 paragraph.append(stripped)
             elif paragraph:
-                prose.append(" ".join(paragraph))
+                prose.append(_clean(" ".join(paragraph)))
                 paragraph = []
         elif section == "args":
             match = ARG_AT.match(line)
@@ -162,7 +183,7 @@ def _docs(func: Any) -> Tuple[str, List[str], Dict[str, Tuple[str, str]]]:
                 buffer.append(stripped)
     flush_arg()
     if paragraph:
-        prose.append(" ".join(paragraph))
+        prose.append(_clean(" ".join(paragraph)))
     return summary, prose, args
 
 
@@ -171,7 +192,7 @@ def _spec(group: str, module_name: str, func_name: str, func: Any) -> Optional[F
         signature = inspect.signature(func)
     except (TypeError, ValueError):
         return None
-    inputs, params = 0, []
+    inputs, params = [], []
     summary, prose, documented = _docs(func)
     for parameter in signature.parameters.values():
         if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
@@ -179,12 +200,15 @@ def _spec(group: str, module_name: str, func_name: str, func: Any) -> Optional[F
         kind = _kind(parameter.annotation)
         if kind is None:
             return None
+        label, help_text = documented.get(parameter.name, ("", ""))
         if kind == "series":
             if params:  # a series after a setting: we write inputs first
                 return None
-            inputs += 1
+            # Named, because a block with four of them has to say which is
+            # which: Re takes velocity, density, viscosity and length.
+            inputs.append(Param(name=parameter.name, kind=kind, label=label,
+                                help=help_text))
             continue
-        label, help_text = documented.get(parameter.name, ("", ""))
         params.append(Param(
             name=parameter.name,
             kind=kind,
@@ -199,7 +223,8 @@ def _spec(group: str, module_name: str, func_name: str, func: Any) -> Optional[F
     return FunctionSpec(
         name=name,
         group=group,
-        inputs=inputs,
+        inputs=len(inputs),
+        input_params=tuple(inputs),
         params=tuple(params),
         short=summary,
         long=tuple(prose),

@@ -49,6 +49,26 @@ def test_every_spec_is_something_the_editor_can_show():
                     assert param.default in param.choices, (spec.name, param.name)
 
 
+def test_inputs_are_named_so_a_block_can_tell_them_apart():
+    reynolds = find("fluid_dynamics.Re")
+    assert reynolds.inputs == 4
+    assert [p.name for p in reynolds.input_params] == [
+        "velocity", "density", "d_viscosity", "length_scale"]
+    assert reynolds.input_params[0].label == "Fluid velocity [m/s]"
+
+
+def test_labels_are_short_enough_for_a_block():
+    """indsl writes a short label on an argument's first line and the
+    explanation under it; the label is what the block has room for."""
+    for spec in catalog().values():
+        for param in tuple(spec.params) + tuple(spec.input_params):
+            assert len(param.label) <= 45, (spec.name, param.name, param.label)
+            # Sphinx roles and maths are markup, not something to read.
+            assert ":math:" not in param.label and "\\" not in param.label, \
+                (spec.name, param.name, param.label)
+        assert ":math:" not in " ".join((spec.short,) + spec.long), spec.name
+
+
 def test_known_specs_are_read_out_of_indsl():
     sg = find("smooth.sg")
     assert sg.group == "Smooth" and sg.inputs == 1 and sg.call is not None

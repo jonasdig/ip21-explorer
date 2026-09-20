@@ -832,14 +832,23 @@ dialog h3 { margin: 0 0 10px 0; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#formula-editor .fe-param input[type="text"], #formula-editor .fe-param select {
-  width: 74px;
+/* Each setting gets the room its answer needs, no more. The .content rule
+   above sets a tag field's width, so these say .content too. */
+#formula-editor .fe-node .content .fe-param input[type="text"],
+#formula-editor .fe-node .content .fe-param select {
+  width: 56px;
   font-size: 11px;
   height: 20px;
   padding: 0 3px;
 }
+#formula-editor .fe-node .content .fe-param input[type="text"] { text-align: right; }
+#formula-editor .fe-node .content .fe-param.duration input { width: 64px; }
+#formula-editor .fe-node .content .fe-param.text input { width: 90px; text-align: left; }
+#formula-editor .fe-node .content .fe-param select { max-width: 110px; width: auto; }
+#formula-editor .fe-node .content .fe-param input[type="checkbox"] { width: auto; }
 #formula-editor .fe-param.bad input { color: #e57373; border-color: #e57373; }
-#formula-editor .fe-node.fn { min-width: 150px; }
+#formula-editor .fe-node { max-width: 210px; }
+#formula-editor .fe-node.fn { min-width: 160px; }
 
 #formula-editor .fe-node .head .help {
   border: none; background: none; padding: 0 3px; color: var(--muted); height: auto;
@@ -879,7 +888,13 @@ dialog h3 { margin: 0 0 10px 0; }
   font-size: 11px;
   cursor: move;
 }
-#formula-editor .fe-node .head .label { flex: 1; }
+#formula-editor .fe-node .head .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 #formula-editor .fe-node .head .x {
   border: none; background: none; padding: 0 3px; color: var(--muted); height: auto;
 }
@@ -890,7 +905,9 @@ dialog h3 { margin: 0 0 10px 0; }
 #formula-editor .fe-node .head .eye:hover { color: #4fc3f7; }
 #formula-editor .fe-node.previewing { border-color: #4fc3f7; box-shadow: 0 0 0 1px #4fc3f7; }
 #formula-editor .fe-node.previewing .head .eye { color: #4fc3f7; }
-#formula-editor .fe-node .main { display: flex; align-items: center; min-height: 34px; }
+/* min-width: 0 lets the middle shrink to the block's width; without it a
+   long name pushes the block open however narrow the block is told to be. */
+#formula-editor .fe-node .main { display: flex; align-items: center; min-height: 34px; min-width: 0; }
 #formula-editor .fe-node .ins {
   display: flex;
   flex-direction: column;
@@ -898,8 +915,19 @@ dialog h3 { margin: 0 0 10px 0; }
   padding: 6px 0;
   margin-left: -6px;
 }
+#formula-editor .fe-node .in-row { display: flex; align-items: center; gap: 4px; }
+/* What an input is, where a block has more than one of them. */
+#formula-editor .fe-node .in-name {
+  max-width: 78px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--muted);
+}
 #formula-editor .fe-node .content {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -908,8 +936,17 @@ dialog h3 { margin: 0 0 10px 0; }
 }
 #formula-editor .fe-node .content input { width: 130px; font-size: 12px; }
 #formula-editor .fe-node.num .content input { width: 70px; text-align: right; }
-#formula-editor .fe-node .big { font-size: 18px; font-weight: 600; }
-#formula-editor .fe-node .content select.period { font-size: 11px; height: 22px; }
+/* A library function's name can run to forty characters; the block shows
+   what fits and the "?" has the rest. */
+#formula-editor .fe-node .big {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 18px;
+  font-weight: 600;
+}
+#formula-editor .fe-node.fn .big { font-size: 14px; }
 #formula-editor .fe-node .val {
   font-size: 11px;
   color: #ffd54f;
