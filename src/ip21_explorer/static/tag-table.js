@@ -19,7 +19,7 @@ import { $, el } from "./util.js";
 const TAG_COLUMNS = [
   { key: "grip", label: "", width: "20px" },
   { key: "visible", label: "", width: "22px" },
-  { key: "axis", label: "Grid", width: "32px" },
+  { key: "axis", label: "Nav", width: "32px" },
   { key: "color", label: "", width: "24px" },
   { key: "name", label: "Tag", width: "minmax(110px, 1fr)" },
   { key: "map", label: "Map", width: "142px" },
@@ -298,7 +298,7 @@ function buildTagRow(uid) {
 
   const axis = el("input");
   axis.type = "radio";
-  axis.title = "Use this tag's scale for the gridlines";
+  axis.title = "The tag the navigator band follows";
   axis.addEventListener("change", () => {
     if (axis.checked) setAxisOwner(activeTab(), uid);
   });

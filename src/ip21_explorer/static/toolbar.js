@@ -1,10 +1,9 @@
 /* The toolbar's buttons and the global keyboard shortcuts. */
 
-import { chart, currentXRange, renderChart } from "./chart.js";
 import { copyTags, pasteTags, tagsFromClipText } from "./clipboard.js";
 import { LABEL_MODES, LIVE_INTERVAL_MS, PRESETS } from "./constants.js";
 import { hideContextMenu } from "./menu.js";
-import { addScooterAt, positionScooters } from "./scooters.js";
+import { positionScooters } from "./scooters.js";
 import { activeTab, saveState, state } from "./state.js";
 import { addTab, setLinked } from "./tabs.js";
 import { isEditingContext, onTagTableKey } from "./tag-table-keys.js";
@@ -42,15 +41,8 @@ export function renderToolbar() {
   $("live-btn").disabled = !tab.live && !!liveBlocked;
   $("live-btn").title = liveBlocked || "Follow now, refreshing every 10 s";
 
-  const axisModeLabels = { stacked: "Axes: stacked", single: "Axes: one", all: "Axes: all" };
-  $("axis-mode").textContent = axisModeLabels[tab.axisMode] || axisModeLabels.stacked;
-  // The XY plot has exactly two axes and no scooters: both buttons would be
-  // controls for something that is not on screen.
-  const xy = isXyMode(tab);
   $("xy-mode").textContent = xyModeLabel(tab);
-  $("xy-mode").classList.toggle("active", xy);
-  $("axis-mode").classList.toggle("hidden", xy);
-  $("add-scooter").classList.toggle("hidden", xy);
+  $("xy-mode").classList.toggle("active", isXyMode(tab));
   $("label-mode").textContent = (LABEL_MODES[state.labelMode] || LABEL_MODES.tag).label;
   $("nav-toggle").classList.toggle("active", !!state.navigator);
   $("link-ranges-cb").checked = !!tab.linked;
@@ -79,21 +71,6 @@ export function initToolbar() {
     renderTags();
     positionScooters();
     saveState();
-  });
-
-  $("axis-mode").addEventListener("click", () => {
-    const tab = activeTab();
-    const cycle = { stacked: "single", single: "all", all: "stacked" };
-    tab.axisMode = cycle[tab.axisMode] || "stacked";
-    renderToolbar();
-    renderChart();
-    saveState();
-  });
-
-  $("add-scooter").addEventListener("click", () => {
-    if (!chart) return;
-    const cur = currentXRange();
-    addScooterAt((cur.start + cur.end) / 2);
   });
 
   $("xy-mode").addEventListener("click", toggleXyMode);

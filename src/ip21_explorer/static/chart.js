@@ -66,16 +66,8 @@ export function xAxisValues(u, splits, axisIdx, foundSpace, foundIncr) {
   });
 }
 
-function gridTag(tab, r) {
-  const byAxis = byUid(tab, tab.axisUid);
-  if (byAxis && r.tagOrder.includes(byAxis.uid)) return byAxis;
-  const first = tab.tags.find((t) => r.tagOrder.includes(t.uid));
-  return first || null;
-}
-
 function makeOpts(tab, r) {
   const size = chartSize();
-  const grid = gridTag(tab, r);
 
   const scales = { x: { time: true, range: [r.start, r.end] } };
   const series = [{}];
@@ -111,30 +103,14 @@ function makeOpts(tab, r) {
     });
   }
 
+  // Only the time axis is uPlot's: every tag's values are printed in the
+  // gutter drawn by axis-gutter.js, which the left padding makes room for.
   const axes = [{
     stroke: "#8b93a3",
     grid: { stroke: "#232834", width: 1 },
     ticks: { stroke: "#2e3442" },
     values: xAxisValues,
   }];
-  let padding;
-  if (tab.axisMode === "stacked") {
-    padding = [10, 12, 0, stackedGutter(tab, r)];
-  } else {
-    const axisTags = tab.axisMode === "single"
-      ? (grid ? [grid] : [])
-      : tab.tags.filter((t) => t.visible !== false && r.tagOrder.includes(t.uid));
-    for (const tag of axisTags) {
-      const isGrid = grid && tag.uid === grid.uid;
-      axes.push({
-        scale: tag.uid,
-        stroke: tag.color,
-        grid: { show: isGrid, stroke: "#232834", width: 1 },
-        ticks: { stroke: "#2e3442" },
-        size: tab.axisMode === "single" ? 68 : 54,
-      });
-    }
-  }
 
   return {
     width: size.width,
@@ -142,7 +118,7 @@ function makeOpts(tab, r) {
     scales,
     series,
     axes,
-    padding,
+    padding: [10, 12, 0, stackedGutter(tab, r)],
     legend: { show: false },
     cursor: {
       drag: { x: true, y: false, setScale: false },

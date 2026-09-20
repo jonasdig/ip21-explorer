@@ -24,9 +24,8 @@ export function tabToConfig(tab, name) {
     name: name || tab.name,
     labels: (tab.labels || []).slice(),
     tags: tab.tags.map(strip),
-    axisMode: tab.axisMode,
     axisTag: (byUid(tab, tab.axisUid) || {}).name || null,
-    // Index disambiguates which copy of a repeated tag holds the grid.
+    // Index disambiguates which copy of a repeated tag the navigator follows.
     axisIndex: tab.tags.findIndex((t) => t.uid === tab.axisUid),
     linked: !!tab.linked,
     plotMode: tab.plotMode === "xy" ? "xy" : "time",
@@ -77,8 +76,6 @@ function configToTab(name, config) {
   for (const tag of tab.tags) {
     if (!tag.color) tag.color = nextColor(tab);
   }
-  tab.axisMode = !config.axisMode || config.axisMode === "multi"
-    ? "stacked" : config.axisMode;
   // v3 stores the index, which survives repeated tag names; older files only
   // carry the name.
   const axisTag = config.axisIndex >= 0 && tab.tags[config.axisIndex]

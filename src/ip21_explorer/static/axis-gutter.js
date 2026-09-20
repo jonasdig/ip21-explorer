@@ -1,4 +1,4 @@
-/* Stacked axis mode (Process Explorer style):
+/* The value gutter (Process Explorer style):
    All tags share a few horizontal gridlines; at each gridline the value of
    every visible tag is printed in a single narrow gutter, stacked vertically
    in the tag's color. Values are each tag's linear interpolation at that
@@ -55,7 +55,7 @@ export function stackedGutter(tab, r) {
 
 export function drawStackedGrid(u) {
   const tab = activeTab();
-  if (!tab || tab.axisMode !== "stacked") return;
+  if (!tab) return;
   const { ctx, bbox } = u;
   const dpr = window.devicePixelRatio || 1;
   const n = stackedDivisions(bbox.height / dpr);
@@ -74,7 +74,7 @@ export function drawStackedGrid(u) {
 
 export function drawStackedLabels(u) {
   const tab = activeTab();
-  if (!tab || tab.axisMode !== "stacked") return;
+  if (!tab) return;
   const r = rt(tab);
   const { ctx, bbox } = u;
   const dpr = window.devicePixelRatio || 1;

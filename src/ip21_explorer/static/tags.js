@@ -280,8 +280,8 @@ export function moveTag(tab, from, to) {
   if (tab.tags.some(isComputed)) recomputeFormulas(tab);
   renderTags();
   renderChart();
-  // gridTag() and navTag() fall back to the first tag when axisUid does not
-  // resolve, so reordering can hand the grid and the band to someone else.
+  // navTag() falls back to the first tag when axisUid does not resolve, so
+  // reordering can hand the band to someone else.
   ensureNavData(tab);
   renderNavigator();
   saveState();

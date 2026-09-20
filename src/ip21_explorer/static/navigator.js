@@ -23,9 +23,9 @@ const NAV_HANDLE_PX = 10;       // grab width of the two edge handles
 let navDrag = null;             // {mode, startX, start, end} while dragging
 
 // The band tracks one tag, not all of them: several traces at thumbnail height
-// would be unreadable, and each one costs another request. It follows the grid
-// tag - the one whose axis is shown, picked in the table's Grid column - so the
-// choice is already visible in the table, and the band names it too.
+// would be unreadable, and each one costs another request. Which tag it is, is
+// picked in the table's Nav column, so the choice is visible there, and the
+// band names it too.
 function navTag(tab) {
   // A formula has no name to ask the historian for, so the band falls through
   // to a real tag: its job is "where in the day am I", which any of them does.

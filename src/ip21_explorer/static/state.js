@@ -27,8 +27,7 @@ export function newTab(name) {
     range: { preset: "24h" }, // or {start, end}
     baseRange: { preset: "24h" }, // the window the user asked for; reset zoom
     linked: false,            // participates in the shared time range
-    axisMode: "stacked",      // "stacked" (PE-style gutter) | "single" | "all"
-    axisUid: null,            // tag whose grid (and single axis) is shown
+    axisUid: null,            // tag the navigator band follows
     plotMode: "time",         // "time" (trend) | "xy" (one tag against another)
     xUid: null,               // XY: which of the two shown tags is on the x axis
     labels: [],               // free-text labels for grouping saved plots
@@ -92,9 +91,7 @@ export function normalizeInterval(value) {
 
 function migrateTab(tab, oldState) {
   tab.linked = tab.linked ?? oldState.linkRanges ?? false;
-  // "multi" was the old side-by-side default; the PE-style gutter replaces it
-  // as default ("all" is the stored name for side-by-side from now on).
-  tab.axisMode = !tab.axisMode || tab.axisMode === "multi" ? "stacked" : tab.axisMode;
+  delete tab.axisMode;        // side-by-side axes: the gutter replaces them
   tab.history = [];
   tab.plotMode = tab.plotMode === "xy" ? "xy" : "time";
   // A uid that no longer resolves would outlive its tag through a save and
