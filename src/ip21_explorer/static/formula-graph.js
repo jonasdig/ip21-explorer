@@ -156,11 +156,14 @@ function nodeAst(graph, id, stack = []) {
       return { k: "fn", name: node.name, args: inputs.map(sub), params: {} };
     }
     need(spec.inputs);
-    // Only the settings the block was given, and only ones it knows.
+    // Only the settings the block was given, and only ones it knows. One
+    // the function has no default for has to be filled in before there is a
+    // formula at all.
     const params = {};
     for (const param of spec.params || []) {
       const value = (node.params || {})[param.name];
       if (value !== undefined && value !== "" && value !== null) params[param.name] = value;
+      else if (param.required) throw new Error(`${node.name} needs ${param.name}`);
     }
     return { k: "fn", name: node.name, args: inputs.slice(0, spec.inputs).map(sub), params };
   }

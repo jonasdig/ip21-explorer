@@ -41,6 +41,10 @@ SKIP: Dict[str, str] = {
     "ts_utils.union": "joins two series' samples rather than computing anything",
     "resample.reindex_scatter": "for scatter plots, not a trend",
     "resample.reindex_scatter_x": "for scatter plots, not a trend",
+    "ts_utils.sliding_window_integration": (
+        "needs numba, which would hold numpy back a version; "
+        "ts_utils.trapezoidal_integration covers the usual need"
+    ),
 }
 
 # Groups whose answer is a flag or a state that holds until the next sample.
@@ -73,6 +77,11 @@ def _kind(annotation: Any) -> Optional[str]:
     if inspect.isclass(annotation) and issubclass(annotation, enum.Enum):
         return CHOICE
     return None
+
+
+def _word(value: str) -> str:
+    """A choice as a formula can write it: one word, no capitals."""
+    return re.sub(r"[^a-z0-9]+", "_", str(value).lower()).strip("_")
 
 
 def _choices(annotation: Any) -> Tuple[str, ...]:
@@ -209,13 +218,18 @@ def _spec(group: str, module_name: str, func_name: str, func: Any) -> Optional[F
             inputs.append(Param(name=parameter.name, kind=kind, label=label,
                                 help=help_text))
             continue
+        values = _choices(parameter.annotation)
+        pairs = tuple((_word(value), value) for value in values)
+        default = _default(parameter.default, kind)
         params.append(Param(
             name=parameter.name,
             kind=kind,
-            default=_default(parameter.default, kind),
-            choices=_choices(parameter.annotation),
+            default=_word(default) if kind == CHOICE and default is not None else default,
+            choices=tuple(word for word, _ in pairs),
+            choice_values=pairs,
             label=label,
             help=help_text,
+            required=parameter.default is inspect.Parameter.empty,
         ))
     if not inputs:
         return None

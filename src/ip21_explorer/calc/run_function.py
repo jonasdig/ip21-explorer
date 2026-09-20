@@ -50,7 +50,11 @@ def even_grid(times: np.ndarray) -> np.ndarray:
 
 
 def to_pandas(times: np.ndarray, values: np.ndarray) -> pd.Series:
-    index = pd.to_datetime(np.asarray(times) * 1e9, utc=True)
+    # UTC, but without the zone on the index: several indsl functions turn
+    # the index into numpy, which a zone-aware one cannot become. The
+    # timestamps are the same either way, and from_pandas reads a bare index
+    # back as UTC.
+    index = pd.to_datetime(np.asarray(times) * 1e9, utc=True).tz_localize(None)
     return pd.Series(np.asarray(values, dtype=float), index=index)
 
 
@@ -63,7 +67,7 @@ def from_pandas(series: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
     return times, values
 
 
-def python_value(annotation: Any, kind: str, value: Any) -> Any:
+def python_value(annotation: Any, kind: str, value: Any, param=None) -> Any:
     """A setting from the formula in the shape the function's signature wants:
     indsl checks its types, so an int parameter may not be handed a float."""
     origin, args = typing.get_origin(annotation), typing.get_args(annotation)
@@ -71,6 +75,8 @@ def python_value(annotation: Any, kind: str, value: Any) -> Any:
         inner = [a for a in args if a is not type(None)]
         if inner:
             return python_value(inner[0], kind, value)
+    if param is not None and param.choice_values:
+        value = param.value_of(value)
     if kind == DURATION:
         return pd.Timedelta(seconds=float(value))
     if annotation is int:
@@ -91,7 +97,7 @@ def call_arguments(spec: FunctionSpec, params: Dict[str, Any]) -> Dict[str, Any]
         if param.name not in params:
             continue
         annotation = signature.parameters[param.name].annotation
-        out[param.name] = python_value(annotation, param.kind, params[param.name])
+        out[param.name] = python_value(annotation, param.kind, params[param.name], param)
     return out
 
 

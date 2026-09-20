@@ -368,6 +368,17 @@ def test_functions_endpoint_lists_the_groups(client):
     assert [p["name"] for p in basic["total"]["params"]] == ["period", "resolution"]
     sg = next(f for f in groups["Smooth"] if f["name"] == "smooth.sg")
     assert sg["inputs"] == 1 and sg["short"] and sg["long"]
-    assert sg["params"][0] == {"name": "window_length", "kind": "number", "default": None,
-                               "choices": [], "label": "Window",
-                               "help": sg["params"][0]["help"]}
+    window = sg["params"][0]
+    assert window["name"] == "window_length" and window["kind"] == "number"
+    assert window["default"] is None and window["choices"] == [] and not window["required"]
+    assert window["label"] == "Window" and window["help"]
+    # A choice the library spells with spaces is one word in a formula, and
+    # the dropdown is told what to call it.
+    check = next(f for g in body["groups"] for f in g["functions"]
+                 if f["name"] == "ts_utils.logical_check")
+    operation = check["params"][0]
+    assert "greater_than" in operation["choices"]
+    assert operation["choiceLabels"]["greater_than"] == "Greater than"
+    # An input a block has to tell apart from the others carries its name.
+    assert [i["name"] for i in check["inputNames"]] == [
+        "value_1", "value_2", "value_true", "value_false"]

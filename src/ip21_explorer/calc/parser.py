@@ -167,6 +167,9 @@ class _Parser:
         params: Dict[str, Any] = {}
         for param in spec.params:
             if not (self.peek() and self.peek().t == ","):
+                # A setting the function has no default for has to be there.
+                if param.required:
+                    raise FormulaError(f"{spec.name} needs {param.name}")
                 break
             self.i += 1
             word = ""

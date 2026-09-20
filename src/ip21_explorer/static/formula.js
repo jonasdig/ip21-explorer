@@ -225,7 +225,11 @@ function parseCall(p, spec) {
   }
   const params = {};
   for (const param of spec.params || []) {
-    if (!(peek(p) && peek(p).t === ",")) break;
+    if (!(peek(p) && peek(p).t === ",")) {
+      // A setting the function has no default for has to be there.
+      if (param.required) throw new Error(`${spec.name} needs ${param.name}`);
+      break;
+    }
     p.i += 1;
     let word = "";
     while (peek(p) && peek(p).t !== ")" && peek(p).t !== ",") word += p.tokens[p.i++].v;

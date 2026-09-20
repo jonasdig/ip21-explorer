@@ -39,9 +39,29 @@ class Param:
     name: str
     kind: str
     default: Any = None
+    # The words a formula may write for a choice. A library's own values can
+    # have spaces in them ("Greater than"), which no single word can be, so
+    # choice_values maps the word back to what the function wants.
     choices: Tuple[str, ...] = ()
+    choice_values: Tuple[Tuple[str, str], ...] = ()
     label: str = ""          # the docstring's own words for it
     help: str = ""
+    # A setting the function has no default for: the formula must say it.
+    required: bool = False
+
+    def value_of(self, word: str) -> Any:
+        """What the function wants for a word the formula used."""
+        for choice, value in self.choice_values:
+            if choice == word:
+                return value
+        return word
+
+    def word_for(self, value: Any) -> Any:
+        """The word a formula writes for one of the function's own values."""
+        for choice, known in self.choice_values:
+            if known == value:
+                return choice
+        return value
 
 
 @dataclass(frozen=True)
@@ -127,10 +147,12 @@ BUILTINS: Tuple[FunctionSpec, ...] = (
     FunctionSpec(
         "total", BASIC, 1,
         params=(
-            Param("period", CHOICE, "day", PERIODS, "Period",
-                  "The calendar period to sum over, in local time."),
-            Param("resolution", CHOICE, "auto", RESOLUTIONS, "Resolution",
-                  "How finely the input is read, as averages over this interval."),
+            Param(name="period", kind=CHOICE, default="day", choices=PERIODS,
+                  label="Period",
+                  help="The calendar period to sum over, in local time."),
+            Param(name="resolution", kind=CHOICE, default="auto", choices=RESOLUTIONS,
+                  label="Resolution",
+                  help="How finely the input is read, as averages over this interval."),
         ),
         short="Sum per hour, day, week, month or year of a rate per hour",
         long=(
@@ -205,6 +227,10 @@ def as_json() -> Dict[str, Any]:
                 "kind": p.kind,
                 "default": p.default,
                 "choices": list(p.choices),
+                # What a choice is called in the library, for the dropdown;
+                # the formula itself writes the word.
+                "choiceLabels": {word: str(value) for word, value in p.choice_values},
+                "required": p.required,
                 "label": p.label,
                 "help": p.help,
             } for p in spec.params],

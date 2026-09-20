@@ -578,7 +578,9 @@ function paramControls(node) {
     if (param.kind === "choice") {
       field = el("select");
       for (const choice of param.choices) {
-        const option = el("option", null, choice);
+        // The formula writes the word; the list shows what the library
+        // calls it ("greater_than" against "Greater than").
+        const option = el("option", null, (param.choiceLabels || {})[choice] || choice);
         option.value = choice;
         field.appendChild(option);
       }
@@ -594,7 +596,8 @@ function paramControls(node) {
       field.type = "text";
       field.spellcheck = false;
       field.value = value(param) === null || value(param) === undefined ? "" : value(param);
-      field.placeholder = param.kind === "duration" ? "1h" : "auto";
+      field.placeholder = param.required ? "required" : param.kind === "duration" ? "1h" : "auto";
+      row.classList.toggle("needed", !!param.required && !field.value);
       field.addEventListener("input", () => {
         const typed = field.value.trim();
         // A setting is only written into the formula once it makes sense;
@@ -602,6 +605,7 @@ function paramControls(node) {
         try {
           set(param, typed === "" ? "" : readWord(spec, param, typed));
           row.classList.remove("bad");
+          row.classList.toggle("needed", !!param.required && typed === "");
         } catch (err) {
           row.classList.add("bad");
         }

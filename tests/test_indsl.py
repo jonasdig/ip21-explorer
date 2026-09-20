@@ -13,6 +13,7 @@ import pytest
 from ip21_explorer.calc.catalog import (
     CHOICE, DURATION, FLAG, NUMBER, TEXT, catalog, find, groups,
 )
+from ip21_explorer.calc.parser import FormulaError, parse_formula
 from ip21_explorer.calc.indsl_catalog import SKIP
 from ip21_explorer.calc.run_function import RunError, even_grid, run_function
 
@@ -136,13 +137,43 @@ def test_too_many_points_is_refused_rather_than_run():
         run_function(find("smooth.sg"), [(t, t)], {})
 
 
+# Functions that need data that means something - a status flag, a vessel's
+# dimensions, a well's pressures - and say so politely over a plain trend.
+# Everything else in the catalog has to work on any series.
+DATA_DEPENDENT = {
+    "equipment.filled_volume_spherical_head_vessel": "needs a vessel's real dimensions",
+    "equipment.filled_volume_torispherical_head_vessel": "needs a vessel's real dimensions",
+    "filter.status_flag_filter": "needs a status flag to filter by",
+    "oil_and_gas.calculate_shutin_interval": "needs a well that has been shut in",
+    "oil_and_gas.calculate_shutin_variable": "needs a shut-in flag",
+    "oil_and_gas.calculate_gas_density": "needs pressure, temperature and gravity",
+}
+
+
+def defaults_for(spec):
+    """Every setting the function has no default for, filled with something
+    harmless, so the call is one a user could have written."""
+    filled = {}
+    for param in spec.params:
+        if not param.required:
+            continue
+        # 2 rather than 1: a period or an order of 1 is refused by some.
+        filled[param.name] = {"number": 2.0, "duration": 3600.0,
+                              "flag": False, "text": "linear"}.get(
+            param.kind, param.choices[0] if param.choices else 2.0)
+    return filled
+
+
 @pytest.mark.parametrize("name", sorted(n for n, s in catalog().items() if s.call))
 @pytest.mark.parametrize("shape", ["sine", "gap"])
-def test_every_catalog_function_runs_or_complains_politely(name, shape):
+def test_every_catalog_function_works_on_a_plain_trend(name, shape):
     """The safety net: with its own defaults over a plain day of data, a
-    function must answer with a series or say what is wrong. Anything else
-    (a crash, an answer of the wrong type) means it does not belong in the
-    catalog - put it in indsl_catalog.SKIP with a reason."""
+    function in the catalog has to answer with a series. A function that can
+    only fail is not one to offer - put it in indsl_catalog.SKIP, or, when it
+    needs data that means something, in DATA_DEPENDENT here, with a reason.
+
+    This is the test that would have caught the zone on the timestamps, the
+    choices that are not one word, and the settings with no default."""
     spec = find(name)
     # Six hours: enough for every function's own defaults (the longest looks
     # three days back and simply finds nothing), short enough to run the
@@ -150,15 +181,58 @@ def test_every_catalog_function_runs_or_complains_politely(name, shape):
     t, v = a_day(shape, minutes=360)
     inputs = [(t, v)] * spec.inputs
     try:
-        out_t, out_v = run_function(spec, inputs, {})
+        out_t, out_v = run_function(spec, inputs, defaults_for(spec))
     except RunError as exc:
-        assert name in str(exc) or "failed" in str(exc)
+        assert name in DATA_DEPENDENT, f"{name} cannot be run at all: {exc}"
+        assert DATA_DEPENDENT[name]
         return
     assert len(out_t) == len(out_v)
 
 
 def test_skipped_functions_say_why():
     assert all(reason for reason in SKIP.values())
+
+
+# -- the three faults that made functions unusable ---------------------------
+
+def test_a_choice_with_spaces_is_written_as_one_word():
+    operation = find("ts_utils.logical_check").params[0]
+    assert "greater_than" in operation.choices
+    assert operation.value_of("greater_than") == "Greater than"
+    assert operation.default == "equality"
+    from ip21_explorer.calc.catalog import as_json
+    shown = next(f for g in as_json()["groups"] for f in g["functions"]
+                 if f["name"] == "ts_utils.logical_check")
+    assert shown["params"][0]["choiceLabels"]["greater_than"] == "Greater than"
+
+
+def test_logical_check_runs_with_a_word_choice():
+    t, v = a_day(minutes=360)
+    high = (t, v + 5)
+    out_t, out_v = run_function(find("ts_utils.logical_check"),
+                                [(t, v), high, (t, np.ones(len(t))), (t, np.zeros(len(t)))],
+                                {"operation": "greater_than"})
+    # v is never greater than v + 5, so the answer is the false value.
+    assert len(out_t) == len(t) and np.allclose(out_v, 0.0)
+
+
+def test_a_setting_without_a_default_is_required():
+    roughness = find("fluid_dynamics.Haaland").params[0]
+    assert roughness.required
+    with pytest.raises(FormulaError, match="fluid_dynamics.Haaland needs roughness"):
+        parse_formula("=fluid_dynamics.Haaland([A])")
+    assert parse_formula("=fluid_dynamics.Haaland([A], 0.0001)").node["params"] == {
+        "roughness": 0.0001}
+
+
+def test_timestamps_reach_the_library_without_a_zone():
+    """Several indsl functions turn the index into numpy, which a zone-aware
+    index cannot become."""
+    from ip21_explorer.calc.run_function import to_pandas
+
+    series = to_pandas(np.array([1_789_689_600.0, 1_789_689_660.0]), np.array([1.0, 2.0]))
+    assert series.index.tz is None
+    assert str(series.index[0]) == "2026-09-18 00:00:00"
 
 
 # -- through a formula -------------------------------------------------------

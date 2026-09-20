@@ -847,6 +847,9 @@ dialog h3 { margin: 0 0 10px 0; }
 #formula-editor .fe-node .content .fe-param select { max-width: 110px; width: auto; }
 #formula-editor .fe-node .content .fe-param input[type="checkbox"] { width: auto; }
 #formula-editor .fe-param.bad input { color: #e57373; border-color: #e57373; }
+/* A setting the function has no default for: nothing computes until it is
+   filled in. */
+#formula-editor .fe-param.needed input { border-color: #e2a03f; }
 #formula-editor .fe-node { max-width: 210px; }
 #formula-editor .fe-node.fn { min-width: 160px; }
 

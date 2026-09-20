@@ -157,6 +157,21 @@
    "refs": [
     "A"
    ]
+  },
+  {
+   "text": "=ts_utils.logical_check([A], [B], [C], [D], greater_than)",
+   "refs": [
+    "A",
+    "B",
+    "C",
+    "D"
+   ]
+  },
+  {
+   "text": "=fluid_dynamics.Haaland([A], 0.0001)",
+   "refs": [
+    "A"
+   ]
   }
  ],
  "error": [
@@ -243,6 +258,14 @@
   {
    "text": "=smooth.sg([A], 61, 3, 4)",
    "error": "smooth.sg takes 1 input and up to 2 settings"
+  },
+  {
+   "text": "=fluid_dynamics.Haaland([A])",
+   "error": "fluid_dynamics.Haaland needs roughness"
+  },
+  {
+   "text": "=ts_utils.logical_check([A], [B], [C], [D], Greater than)",
+   "error": "ts_utils.logical_check: operation must be one of equality, inequality, greater_than, greater_or_equal_than, smaller_than, smaller_or_equal_than"
   }
  ]
 }
