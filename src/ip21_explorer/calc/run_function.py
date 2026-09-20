@@ -13,13 +13,18 @@ import inspect
 import logging
 import time
 import typing
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
 
 from .align import median_step, sample_at
 from .catalog import DURATION, FunctionSpec
+
+# An input that is a plain number rather than a series: several functions
+# take one - a threshold, a density, the value to show when a condition does
+# not hold - and write it as Union[pd.Series, float].
+Input = Union[Tuple[np.ndarray, np.ndarray], float]
 
 logger = logging.getLogger("ip21_explorer")
 
@@ -101,10 +106,21 @@ def call_arguments(spec: FunctionSpec, params: Dict[str, Any]) -> Dict[str, Any]
     return out
 
 
-def run_function(spec: FunctionSpec, inputs: Sequence[Tuple[np.ndarray, np.ndarray]],
+def takes_a_number(spec: FunctionSpec, position: int) -> bool:
+    """Whether that input may be a plain number, as the signature says."""
+    signature = inspect.signature(spec.call)
+    parameters = list(signature.parameters.values())
+    if position >= len(parameters):
+        return False
+    annotation = parameters[position].annotation
+    args = typing.get_args(annotation)
+    return bool(args) and float in args
+
+
+def run_function(spec: FunctionSpec, inputs: Sequence[Input], times: np.ndarray,
                  params: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
-    """One catalog function over inputs already on a common grid."""
-    times = inputs[0][0]
+    """One catalog function over its inputs: series on the common grid, and
+    plain numbers where the formula gave one."""
     if not len(times):
         return times, np.array([], dtype=float)
     if len(times) > MAX_POINTS:
@@ -113,19 +129,40 @@ def run_function(spec: FunctionSpec, inputs: Sequence[Tuple[np.ndarray, np.ndarr
             f"({MAX_POINTS}); a shorter window or a coarser Period"
         )
     grid = even_grid(times)
-    series: List[pd.Series] = []
-    for t, v in inputs:
-        if grid is times:
-            series.append(to_pandas(t, v))
-        else:
-            gap = 3 * median_step(t)
-            series.append(to_pandas(grid, sample_at(t, v, grid, False, gap)))
 
+    def arguments(numbers_as_series: bool) -> List[Any]:
+        out: List[Any] = []
+        for position, given in enumerate(inputs):
+            if not isinstance(given, tuple):
+                # A number goes in as a number where the signature allows
+                # one, and as a flat series otherwise.
+                as_number = takes_a_number(spec, position) and not numbers_as_series
+                out.append(float(given) if as_number
+                           else to_pandas(grid, np.full(len(grid), float(given))))
+                continue
+            t, v = given
+            if grid is times:
+                out.append(to_pandas(t, v))
+            else:
+                gap = 3 * median_step(t)
+                out.append(to_pandas(grid, sample_at(t, v, grid, False, gap)))
+        return out
+
+    has_numbers = any(not isinstance(given, tuple) for given in inputs)
     began = time.monotonic()
     try:
-        answer = spec.call(*series, **call_arguments(spec, params))
+        answer = spec.call(*arguments(False), **call_arguments(spec, params))
     except Exception as exc:
-        raise RunError(_message(spec, exc)) from None
+        # A few of the library's own functions trip over a number they say
+        # they take (an IndexError from inside their maths). The same number
+        # held flat over the window means the same thing, so try that before
+        # giving up.
+        if not has_numbers or isinstance(exc, (ValueError, TypeError)):
+            raise RunError(_message(spec, exc)) from None
+        try:
+            answer = spec.call(*arguments(True), **call_arguments(spec, params))
+        except Exception as second:
+            raise RunError(_message(spec, second)) from None
     took = time.monotonic() - began
     if took > 1:
         logger.info("%s over %d points took %.1f s", spec.name, len(grid), took)

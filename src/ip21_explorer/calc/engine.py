@@ -304,12 +304,26 @@ class _Computation:
         spec = find(node["name"])
         if spec is None or spec.call is None:
             raise RefError(f'{node["name"]} is not available here', True)
-        parts = [self._series(arg, refs, parsed, window) for arg in node["args"]]
-        grid = union_times([t for t, _, _ in parts])
-        columns = align_onto([(t, v, step) for t, v, step in parts], grid)
+        # An input that is only numbers - a threshold, a density - has no
+        # time of its own; it goes in as the number it is.
+        parts, constants = [], {}
+        for position, arg in enumerate(node["args"]):
+            if _leaf_count(arg):
+                parts.append((position, self._series(arg, refs, parsed, window)))
+            else:
+                constants[position] = float(evaluate(arg, lambda leaf: None, 1)[0])
+        if not parts:
+            raise RefError(f'{node["name"]} needs at least one input with data', True)
+
+        grid = union_times([t for _, (t, _, _) in parts])
+        columns = align_onto([(t, v, step) for _, (t, v, step) in parts], grid)
+        inputs: List[Any] = [None] * len(node["args"])
+        for (position, _), column in zip(parts, columns):
+            inputs[position] = (grid, column)
+        for position, value in constants.items():
+            inputs[position] = value
         try:
-            t, v = run_function(spec, [(grid, column) for column in columns],
-                                node.get("params", {}))
+            t, v = run_function(spec, inputs, grid, node.get("params", {}))
         except RunError as exc:
             raise RefError(str(exc), True) from None
         return t, v, spec.step
@@ -344,6 +358,11 @@ def is_series_function(node: Node) -> bool:
         return True
     spec = find(node["name"])
     return bool(spec and spec.call)
+
+
+def _leaf_count(node: Node) -> int:
+    """How many series an expression rests on; none means it is all numbers."""
+    return sum(1 for _ in _leaves(node))
 
 
 def _period(node: Node) -> str:

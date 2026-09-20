@@ -15,7 +15,9 @@ from ip21_explorer.calc.catalog import (
 )
 from ip21_explorer.calc.parser import FormulaError, parse_formula
 from ip21_explorer.calc.indsl_catalog import SKIP
-from ip21_explorer.calc.run_function import RunError, even_grid, run_function
+from ip21_explorer.calc.run_function import (
+    RunError, even_grid, run_function, takes_a_number,
+)
 
 KINDS = {NUMBER, DURATION, CHOICE, FLAG, TEXT}
 DAY = 24 * 60
@@ -94,7 +96,7 @@ def test_smoothing_keeps_the_shape_but_loses_the_ripple():
     x = np.arange(DAY) / DAY
     swing = 50 + 10 * np.sin(2 * np.pi * x)
     v = swing + np.sin(2 * np.pi * 288 * x)
-    out_t, out_v = run_function(find("smooth.sg"), [(t, v)], {"window_length": 61})
+    out_t, out_v = run_function(find("smooth.sg"), [(t, v)], t, {"window_length": 61})
     assert np.array_equal(out_t, t)
     # The swing survives; the ripple is gone.
     assert np.allclose(out_v[100:-100], swing[100:-100], atol=0.3)
@@ -103,7 +105,7 @@ def test_smoothing_keeps_the_shape_but_loses_the_ripple():
 def test_integration_of_a_constant_rate():
     t = 1_789_689_600 + np.arange(25) * 3600.0
     out_t, out_v = run_function(find("ts_utils.trapezoidal_integration"),
-                                [(t, np.full(25, 10.0))], {"time_unit": 3600.0})
+                                [(t, np.full(25, 10.0))], t, {"time_unit": 3600.0})
     assert out_v[-1] == pytest.approx(240.0)
 
 
@@ -114,7 +116,7 @@ def test_a_two_input_function_takes_both_series():
     both = find("filter.status_flag_filter")
     assert both.inputs == 2
     flag = np.where(np.arange(DAY) < 600, 1.0, 0.0)
-    out_t, out_v = run_function(both, [(t, v), (t, flag)], {})
+    out_t, out_v = run_function(both, [(t, v), (t, flag)], t, {})
     assert len(out_t) and not np.isnan(out_v).all()
 
 
@@ -127,14 +129,14 @@ def test_an_uneven_grid_is_evened_out_first():
 def test_indsls_complaint_becomes_the_formulas_error():
     t, v = a_day()
     with pytest.raises(RunError) as info:
-        run_function(find("smooth.sg"), [(t, v)], {"window_length": 3, "polyorder": 9})
+        run_function(find("smooth.sg"), [(t, v)], t, {"window_length": 3, "polyorder": 9})
     assert "smooth.sg" in str(info.value)
 
 
 def test_too_many_points_is_refused_rather_than_run():
     t = np.arange(300_000, dtype=float)
     with pytest.raises(RunError, match="more than it can be asked for"):
-        run_function(find("smooth.sg"), [(t, t)], {})
+        run_function(find("smooth.sg"), [(t, t)], t, {})
 
 
 # Functions that need data that means something - a status flag, a vessel's
@@ -181,10 +183,73 @@ def test_every_catalog_function_works_on_a_plain_trend(name, shape):
     t, v = a_day(shape, minutes=360)
     inputs = [(t, v)] * spec.inputs
     try:
-        out_t, out_v = run_function(spec, inputs, defaults_for(spec))
+        out_t, out_v = run_function(spec, inputs, t, defaults_for(spec))
     except RunError as exc:
         assert name in DATA_DEPENDENT, f"{name} cannot be run at all: {exc}"
         assert DATA_DEPENDENT[name]
+        return
+    assert len(out_t) == len(out_v)
+
+
+# -- a number where a series would do ----------------------------------------
+
+def test_a_number_goes_in_as_a_number_where_the_function_takes_one():
+    """Many inputs are written Union[pd.Series, float]: a threshold or the
+    value to show when a condition does not hold is a number, not a trend."""
+    t, v = a_day(minutes=120)
+    check = find("ts_utils.logical_check")
+    assert [takes_a_number(check, i) for i in range(4)] == [True] * 4
+    out_t, out_v = run_function(check, [(t, v), (t, v + 5), 1.0, 0.0], t,
+                                {"operation": "smaller_than"})
+    # v is always smaller than v + 5, so every point is the true value.
+    assert len(out_t) == len(t) and np.allclose(out_v, 1.0)
+
+
+def test_a_number_becomes_a_flat_series_for_an_input_that_only_takes_series():
+    t, v = a_day(minutes=120)
+    flag_filter = find("filter.status_flag_filter")
+    assert not takes_a_number(flag_filter, 1)
+    out_t, out_v = run_function(flag_filter, [(t, v), 0.0], t, {})
+    assert len(out_t) == len(t) and out_v[0] == pytest.approx(v[0])
+
+
+def test_a_formula_may_wire_a_number_into_a_function():
+    from ip21_explorer.calc import compute
+    from ip21_explorer.sources.simulator import SimulatorSource
+
+    refs = {name: {"tag": name, "sample": "INT", "interval": "60"}
+            for name in ("TI-101", "PI-103")}
+    items = [
+        {"id": "check", "refs": refs,
+         "expr": "=ts_utils.logical_check([TI-101], [PI-103], 1, 0, greater_than)"},
+        {"id": "head", "refs": refs,
+         "expr": "=equipment.total_head([TI-101], [PI-103], 1000)"},
+        {"id": "numbers", "refs": refs,
+         "expr": "=ts_utils.logical_check(1, 2, 3, 4) + [TI-101] * 0"},
+    ]
+    out = compute(SimulatorSource(), items, 1_789_689_600, 1_789_689_600 + 3600)
+    assert out["check"].error is None and len(out["check"].t) == 61
+    assert set(np.unique(out["check"].v)) <= {0.0, 1.0}
+    assert out["head"].error is None and len(out["head"].t) == 61
+    # Nothing to draw against when every input is a number.
+    assert out["numbers"].error == (
+        "ts_utils.logical_check needs at least one input with data", True)
+
+
+@pytest.mark.parametrize("name", sorted(
+    n for n, s in catalog().items()
+    if s.call and any(takes_a_number(s, i) for i in range(s.inputs))))
+def test_number_accepting_inputs_work_as_numbers(name):
+    """Every input a function will take a number for, given a number."""
+    spec = find(name)
+    t, v = a_day(minutes=360)
+    inputs = [2.0 if takes_a_number(spec, i) else (t, v) for i in range(spec.inputs)]
+    if all(not isinstance(given, tuple) for given in inputs):
+        inputs[0] = (t, v)          # one input has to carry the time axis
+    try:
+        out_t, out_v = run_function(spec, inputs, t, defaults_for(spec))
+    except RunError as exc:
+        assert name in DATA_DEPENDENT, f"{name} cannot take a number: {exc}"
         return
     assert len(out_t) == len(out_v)
 
@@ -211,7 +276,7 @@ def test_logical_check_runs_with_a_word_choice():
     high = (t, v + 5)
     out_t, out_v = run_function(find("ts_utils.logical_check"),
                                 [(t, v), high, (t, np.ones(len(t))), (t, np.zeros(len(t)))],
-                                {"operation": "greater_than"})
+                                t, {"operation": "greater_than"})
     # v is never greater than v + 5, so the answer is the false value.
     assert len(out_t) == len(t) and np.allclose(out_v, 0.0)
 
