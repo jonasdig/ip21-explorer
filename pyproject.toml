@@ -1,10 +1,14 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ip21-explorer"
-version = "0.1.0"
+# Derived from the git history at build time (see [tool.setuptools_scm]).
+# A fixed version would be the same on every commit, and pip skips a
+# reinstall when the version has not changed - so "pip install --upgrade
+# git+https://..." would quietly do nothing.
+dynamic = ["version"]
 description = "Fast trend viewer for IP21 process data"
 license = {text = "MIT"}
 classifiers = ["License :: OSI Approved :: MIT License"]
@@ -33,6 +37,10 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 ip21_explorer = ["static/*", "static/vendor/*"]
+
+[tool.setuptools_scm]
+# A build with no .git to read - a downloaded zip - has no history to count.
+fallback_version = "0.0.0"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

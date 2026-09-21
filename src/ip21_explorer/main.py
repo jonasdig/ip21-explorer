@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 
+from . import __version__
 from .calc import CachedSource, auto_interval, compute
 from .calc.catalog import as_json as functions_json
 from .calc.engine import NICE_INTERVALS  # noqa: F401 - part of this module's API
@@ -390,6 +391,9 @@ def cli() -> None:
     # in the same shape as uvicorn's lines.
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
     logging.getLogger("tagreader").setLevel(logging.WARNING)
+    # Which build is actually running: the version carries the commit, so an
+    # upgrade that did not take hold says so here.
+    logger.info("IP21 Explorer %s, %s source", __version__, settings.source)
 
     uvicorn.run(
         create_app(source=source, settings=settings), host=host, port=port

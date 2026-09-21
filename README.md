@@ -108,6 +108,14 @@ one Aspen Process Explorer's web components use) — see Configuration below.
 
 Run the tests with `.venv/bin/pytest`.
 
+To install without a clone, into a virtual environment of your own:
+
+```bash
+pip install "ip21-explorer[aspen] @ git+https://github.com/jonasdig/ip21-explorer.git"
+```
+
+The server then starts as `ip21-explorer` (same options as above).
+
 ## Configuration (live IP21 data)
 
 Copy [ip21.env.example](ip21.env.example) to `ip21.env` next to where you start
@@ -153,9 +161,29 @@ Saved plots are written to `./plots/*.json` (override with `IP21_PLOTS_DIR`).
 
 ## Upgrading
 
+From a clone:
+
 ```bash
 git pull && .venv/bin/pip install -e ".[aspen]"
 ```
+
+Installed straight from GitHub:
+
+```bash
+pip install --upgrade "ip21-explorer[aspen] @ git+https://github.com/jonasdig/ip21-explorer.git"
+```
+
+The version number comes from the git history, so every commit is a version
+of its own and `--upgrade` sees it. A build from before that was true reports
+`0.1.0` whatever it holds, and pip skips it as already installed; such an
+install needs one
+
+```bash
+pip install --force-reinstall --no-deps "ip21-explorer @ git+https://github.com/jonasdig/ip21-explorer.git"
+```
+
+to get across, and upgrades normally afterwards. The version the server is
+running is the first line it logs at startup.
 
 Then restart the server. Saved plots (`plots/*.json`), your `ip21.env` and the
 per-browser state (open tabs, colors, scooters) are untouched. The server tells
