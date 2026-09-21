@@ -10,41 +10,34 @@ Python runs; no Node, no build step, no external CDNs.
 
 Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-explorer)
 
+![The trend view](docs/trend.png)
+
+![The block editor](docs/block-editor.png)
+
+*A formula built from blocks: FI-104 above 5 m3/h, summed per day — the hours
+the pump ran. The preview follows along while it is built.*
+
 ## Features
 
 ### The plot
 
 - **A full-screen plot per tab**, each with its own tags and time range; tabs
   that tick *Link time* share one range
-- **Process Explorer-style value gutter**: all tags share a few gridlines, with
-  every tag's value at each one printed in its own colour. Each tag has its own
-  y-scale, automatic or a typed min/max
-- **Line style per tag**: solid, dashed, dotted or dots only, thin to thick
-- **Scooters**: draggable value cursors with per-tag readouts. Double-click the
-  chart to add one
-- **Time presets** (1h–30d), typed ranges, drag-select and wheel zoom with
-  automatic re-fetch, `Esc` to zoom back, a **Now** button and **Live** mode
-  that follows now and refreshes itself
-- **Navigator band** under the chart: a wider span with the visible window
-  drawn on it, to drag or stretch into place
+- **Time presets** (1h–30d), typed ranges, drag and wheel zoom, `Esc` to zoom
+  back, and a **Live** mode that follows now
 - **XY plot**: tags against a shared x tag, each point coloured by when it is,
   so drift shows as the cloud moving rather than as trends compared by eye
 - **CSV export** and **average between scooters** from the chart's right-click
-  menu — the visible window or the span between two scooters
-- 24-hour clock throughout, dates as `dd.mm.yyyy`
+  menu
 
 ### Tags
 
-- **Settings table** under the plot: one row per tag, everything editable in
-  place while the trends stay visible — tag name, colour, record map, sampling
-  type and interval, step, min/max, unit and description. `Tab` and `Enter`
-  move between cells, the blank bottom row adds a tag by name, and rows drag to
-  reorder. Drag a heading to move its column or its edge to size it; drag the
-  table's top edge to trade height with the plot
+- **Settings table** under the plot: tag name, colour, record map, sampling
+  type and interval, step, min/max, unit and description, all editable in
+  place. Rows drag to reorder, columns drag to move or resize
 - **Search** over tag names *and* descriptions, with `*` wildcards: pair part
   of a tag with a word from its description (`TIC-24 temperature`) and both
-  must match. The list stays open while tags are picked, so one search can seed
-  a whole plot
+  must match
 - **Sampling per tag**: interpolated, average, min or max over an interval (or
   Auto), like Process Explorer's Type and Period columns
 - **Record maps**: plot `TAG;MAP` (e.g. `TIC-102;OUTPUT`), chosen per row. The
@@ -58,21 +51,17 @@ Source: [github.com/jonasdig/ip21-explorer](https://github.com/jonasdig/ip21-exp
 - **A row whose tag name starts with `=`** is arithmetic over other tags:
   `=[TI-101] - [TI-201]`, `=([FI-104]*2)^0.5`, `=avg([TI-101],[TI-201])`, with
   `+ - * / ^`, parentheses and comparisons (`>` `<` `>=` `<=`, giving 1 or 0).
-  References go in brackets, since every IP21 tag has a hyphen in it. A
-  reference needs no row of its own, and formulas can refer to other formulas
-  by their description
+  References go in brackets, since every IP21 tag has a hyphen in it
 - **Totals per calendar period**: `=total([FI-104], day)` turns m3/h into m3
   per day, `=total([FI-104] > 5, day)` counts the hours a pump ran
 - **A function library**: the basics (`abs`, `sqrt`, `min`, `max`, `avg`, …)
   plus [indsl](https://github.com/cognitedata/indsl) — filtering, smoothing,
   resampling, drift and outlier detection, data quality, forecasting,
   statistics and fluid-dynamics calculations, grouped by toolbox
-- **Block editor**: the same formulas built by dragging blocks onto a canvas
-  and wiring them together, with a live preview of the result or of any single
-  block. Open it with the *ƒ* after a row's tag name. Every block explains
-  itself on hover, and a *?* opens a fuller description where one helps. The
-  text stays the truth: *Apply* writes the expression into the Tag field, and
-  typing there rebuilds the blocks
+- **Block editor**, opened with the *ƒ* after a row's tag name: the same
+  formulas as blocks and wires, with every block explaining itself on hover.
+  The text stays the truth — *Apply* writes it into the Tag field, and typing
+  there rebuilds the blocks
 
 ### Keeping a plot
 
@@ -161,88 +150,29 @@ Saved plots are written to `./plots/*.json` (override with `IP21_PLOTS_DIR`).
 
 ## Upgrading
 
-From a clone:
-
-```bash
-git pull && .venv/bin/pip install -e ".[aspen]"
-```
-
-Installed straight from GitHub:
-
 ```bash
 pip install --upgrade "ip21-explorer[aspen] @ git+https://github.com/jonasdig/ip21-explorer.git"
 ```
 
-The version number comes from the git history, so every commit is a version
-of its own and `--upgrade` sees it. A build from before that was true reports
-`0.1.0` whatever it holds, and pip skips it as already installed; such an
-install needs one
-
-```bash
-pip install --force-reinstall --no-deps "ip21-explorer @ git+https://github.com/jonasdig/ip21-explorer.git"
-```
-
-to get across, and upgrades normally afterwards. The version the server is
-running is the first line it logs at startup.
-
 Then restart the server. Saved plots (`plots/*.json`), your `ip21.env` and the
-per-browser state (open tabs, colors, scooters) are untouched. The server tells
-the browser to check for a newer frontend on every load, so a normal reload
-picks it up — except the first time after upgrading from a build older than
-that, when one Ctrl+F5 clears the copy the browser cached on its own.
+per-browser state (open tabs, colors, scooters) are untouched. The version
+running is the first line the server logs at startup.
 
 ## Architecture
 
 ```
 src/ip21_explorer/
-  main.py              FastAPI app: /api/tags, /api/data, /api/compute, /api/functions, /api/plots + static files
-  config.py            Settings from env vars / CLI
-  calc/                Formulas, independent of the web app (so an alarm service can use it)
-    catalog.py         Every function a formula may call, ours and indsl's
-    indsl_catalog.py   indsl's toolboxes, read from its signatures and docstrings
-    run_function.py    Calling one of them over a series, through pandas
-    parser.py          "=" expressions, the same grammar as static/formula.js
-    align.py           Reading a series at a time it has no sample of
-    evaluate.py        An expression over aligned columns
-    periods.py         Local calendar hours, days, weeks, months, years
-    engine.py          compute(): reads the tags, evaluates, total()
-    cache.py           CachedSource: recent reads kept for a couple of minutes
-  sources/
-    base.py            DataSource protocol, SampleType (INT/AVG/MIN/MAX)
-    simulator.py       Deterministic synthetic trends (dev/testing)
-    aspen.py           tagreader-backed live source (work machine)
-  static/              Vanilla JS frontend as ES modules, vendored uPlot (MIT, ~50 KB)
-    main.js            Entry point: wires the modules together and starts the app
-    state.js           Tabs and tags, their migration, localStorage
-    api.js, data.js    Server API wrappers; fetching and joining trend data
-    chart.js           uPlot chart; axis-gutter.js draws the value gutter
-    tags.js            Adding/removing tags, units, the tag setter
-    formula.js         "=" expressions: the parser, driven by /api/functions
-    resample.js        Reading a series at a time it has no sample of (XY, previews)
-    computed.js        Formula rows: references, order, asking the server
-    formula-graph.js   Formulas as blocks and wires, and back to text
-    formula-editor.js  The block editor window
-    xy-chart.js        XY plot, time colour ramp and its legend
-    tag-table.js       Settings table (tag-table-keys.js: its keyboard handling)
-    search.js          Tag search         timerange.js   Presets, zoom, live
-    scooters.js        Value cursors      navigator.js   Navigator band
-    tabs.js            Tab strip          toolbar.js     Buttons, shortcuts
-    plots.js           Save/open/import   share.js       Share links
-    menu.js            Context menus      clipboard.js   Copy/paste tags
-    analysis.js        CSV, averages      timefields.js  Time fields, calendar
-    constants.js, util.js
-tests/                 Simulator, API, formula and frontend module tests (pytest);
-                       fixtures/formula_cases.json holds both parsers to the same answers
+  main.py        FastAPI app: the JSON API and the static files
+  config.py      Settings from env vars and the command line
+  calc/          Formulas - parser, evaluator, and the function catalog built
+                 from indsl - independent of the web app, so a future alarm
+                 service can use the same engine
+  sources/       simulator.py (deterministic trends for development) and
+                 aspen.py (tagreader, live IP21) behind one small protocol
+  static/        The frontend: vanilla ES modules and vendored uPlot (MIT)
+tests/           pytest: the simulator, the API, the formulas, and a scan of
+                 the ES modules that catches a broken import without a browser
 ```
-
-The two data sources implement the same small protocol, so the entire app is
-testable against the simulator; `aspen.py` is a thin mapping kept deliberately
-free of logic.
-
-The frontend has no build step, so nothing checks its imports before a browser
-runs them. `tests/test_static_modules.py` scans the modules as text instead and
-fails on an import that does not resolve, a name used from another module
-without importing it, an unused import, or a module nothing loads.
 
 ## License
 
