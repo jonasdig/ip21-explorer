@@ -258,6 +258,38 @@ def test_skipped_functions_say_why():
     assert all(reason for reason in SKIP.values())
 
 
+# -- the Operators toolbox, whose data arguments carry no type ---------------
+
+def test_an_argument_indsl_never_typed_is_read_as_a_series():
+    # def sign(x), def mod(a, b): no annotation, no default, so a series.
+    sign = find("ts_utils.sign")
+    assert sign.inputs == 1 and [p.name for p in sign.input_params] == ["x"]
+    assert not sign.params
+
+    mod = find("ts_utils.mod")
+    assert mod.inputs == 2 and [p.name for p in mod.input_params] == ["a", "b"]
+    # align_timesteps is typed, so it stays a setting rather than a third input.
+    assert [p.name for p in mod.params] == ["align_timesteps"]
+
+
+def test_an_untyped_argument_is_only_a_series_when_it_has_no_default():
+    import inspect
+
+    from ip21_explorer.calc.indsl_catalog import _untyped_input
+
+    def f(data, threshold=1.0):
+        pass
+
+    data, threshold = inspect.signature(f).parameters.values()
+    assert _untyped_input(data) and not _untyped_input(threshold)
+
+
+@pytest.mark.parametrize("name", ["sqrt", "add", "round", "maximum", "power"])
+def test_arithmetic_we_already_have_is_not_offered_twice(name):
+    assert find(f"ts_utils.{name}") is None
+    assert f"ts_utils.{name}" in SKIP
+
+
 # -- the three faults that made functions unusable ---------------------------
 
 def test_a_choice_with_spaces_is_written_as_one_word():

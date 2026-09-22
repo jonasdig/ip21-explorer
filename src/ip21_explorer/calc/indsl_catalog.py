@@ -47,6 +47,17 @@ SKIP: Dict[str, str] = {
     ),
 }
 
+# The Operators toolbox repeats arithmetic the basic blocks already do, and
+# two blocks for one thing is worse than one.
+OURS_ALREADY = {
+    "absolute": "abs", "add": "+", "arithmetic_mean": "avg", "div": "/",
+    "exp": "exp", "inv": "1 /", "log": "ln", "log10": "log10",
+    "maximum": "max", "minimum": "min", "mul": "x", "neg": "-x",
+    "power": "^", "round": "round", "sqrt": "sqrt", "sub": "-",
+}
+SKIP.update({f"ts_utils.{name}": f"the {block} block does the same"
+             for name, block in OURS_ALREADY.items()})
+
 # Groups whose answer is a flag or a state that holds until the next sample.
 STEP_GROUPS = {"Detect", "Data quality"}
 
@@ -77,6 +88,18 @@ def _kind(annotation: Any) -> Optional[str]:
     if inspect.isclass(annotation) and issubclass(annotation, enum.Enum):
         return CHOICE
     return None
+
+
+def _untyped_input(parameter: inspect.Parameter) -> bool:
+    """Whether an argument indsl never annotated is the series to work on.
+
+    The Operators toolbox writes its data arguments bare - def sqrt(x),
+    def mod(a, b) - while every setting it has is both typed and given a
+    default. No argument in the whole library is untyped *and* defaulted, so
+    one that is neither is a series.
+    """
+    return (parameter.annotation is inspect.Parameter.empty
+            and parameter.default is inspect.Parameter.empty)
 
 
 def _word(value: str) -> str:
@@ -207,6 +230,8 @@ def _spec(group: str, module_name: str, func_name: str, func: Any) -> Optional[F
         if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
             return None
         kind = _kind(parameter.annotation)
+        if kind is None and _untyped_input(parameter):
+            kind = "series"
         if kind is None:
             return None
         label, help_text = documented.get(parameter.name, ("", ""))
@@ -278,6 +303,7 @@ def indsl_functions() -> List[FunctionSpec]:
             else:
                 specs.append(spec)
     if left_out:
-        logger.info("%d indsl functions left out (settings we cannot write): %s",
+        logger.info("%d indsl functions left out (arguments a formula cannot "
+                    "write, or nothing to read a trend into): %s",
                     len(left_out), ", ".join(sorted(left_out)))
     return specs
