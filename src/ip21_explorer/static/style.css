@@ -541,7 +541,6 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   padding: 0;
 }
 #tag-table .cell .star.on { color: #ffd54f; }
-#tag-table .cell.auto button { color: var(--muted); }
 #tag-table .cell.remove .close {
   border: none;
   background: none;

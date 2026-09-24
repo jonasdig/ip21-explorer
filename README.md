@@ -40,7 +40,8 @@ pump ran each day. The preview under the canvas follows every change.*
   part of a tag name with a word from its description (`TIC-24 temperature`),
   and a tag must match both
 - **Alarm limits** per tag in the *Limits* column (`H 80, L 20`, and `HH`,
-  `LL`), shaded beyond each limit on the tag's own scale
+  `LL`): the trend is drawn bolder where it goes beyond a limit, with a tick
+  at the plot's edge for each one
 - **Sampling per tag**: interpolated, average, min or max over an interval (or
   Auto), like Process Explorer's Type and Period columns
 - **Record maps**: plot `TAG;MAP` (e.g. `TIC-102;OUTPUT`), chosen per row. The

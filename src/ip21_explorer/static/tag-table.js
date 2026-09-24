@@ -9,7 +9,7 @@ import { INTERVALS, SAMPLES } from "./constants.js";
 import { openMenu, openSwatchMenu, showTagMenu } from "./menu.js";
 import { activeTab, byUid, makeTag, normalizeTagName, saveState, state } from "./state.js";
 import {
-  autoScale, ensureMaps, insertTags, moveTag, removeTag, renderTags,
+  ensureMaps, insertTags, moveTag, removeTag, renderTags,
   setNavTag, setTagField,
 } from "./tags.js";
 import { $, el, followPointer } from "./util.js";
@@ -29,7 +29,6 @@ const TAG_COLUMNS = [
   { key: "step", label: "Step", width: "36px" },
   { key: "min", label: "Min", width: "68px" },
   { key: "max", label: "Max", width: "68px" },
-  { key: "auto", label: "", width: "38px" },
   { key: "limits", label: "Limits", width: "96px" },
   { key: "unit", label: "Unit", width: "56px" },
   { key: "desc", label: "Description", width: "minmax(120px, 2fr)" },
@@ -362,13 +361,6 @@ function buildTagRow(uid) {
     input.addEventListener("change", () => commitScale(tagOf(), key, input));
     cellOf(row, key).appendChild(mark(input, key));
   }
-
-  // Not the word "auto": it would sit right beside two fields whose own
-  // placeholder is already "auto", and read as a third one.
-  const auto = el("button", null, "\u21ba");
-  auto.title = "Back to an automatic scale";
-  auto.addEventListener("click", () => autoScale(activeTab(), tagOf()));
-  cellOf(row, "auto").appendChild(mark(auto, "auto"));
 
   // Text that does not read as limits stays in the field, marked, and the
   // row keeps the limits it had until the text is put right.

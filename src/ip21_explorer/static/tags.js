@@ -402,10 +402,6 @@ export function setTagField(tab, tag, key, value) {
   setTagFields(tab, tag, { [key]: value });
 }
 
-export function autoScale(tab, tag) {
-  setTagFields(tab, tag, { min: null, max: null });
-}
-
 // Which tag the navigator band follows. Stored as axisUid, the name it had
 // when it also chose the plot's gridlines, because saved plots carry it.
 export function setNavTag(tab, uid) {

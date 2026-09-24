@@ -5,7 +5,7 @@ import {
 } from "./axis-gutter.js";
 import { LINE_DASHES, LINE_WIDTHS, MAX_SPAN_S, MIN_SPAN_S } from "./constants.js";
 import { loadData } from "./data.js";
-import { drawLimitShading } from "./limits.js";
+import { drawLimitMarks } from "./limits.js";
 import { showContextMenu } from "./menu.js";
 import {
   addScooterAt, forgetScooterEls, mountScooters, positionScooters,
@@ -130,9 +130,9 @@ function makeOpts(tab, r) {
     hooks: {
       setSelect: [onSelectZoom],
       setCursor: [onCursorMove],
-      // Under the trends: the gridlines, then the alarm limits' shading.
-      drawClear: [drawStackedGrid, (u) => drawLimitShading(u, tab, r)],
-      draw: [() => positionScooters(), drawStackedLabels],
+      drawClear: [drawStackedGrid],
+      // Over the trends: where each is beyond its alarm limits.
+      draw: [() => positionScooters(), drawStackedLabels, (u) => drawLimitMarks(u, tab, r)],
       ready: [onChartReady],
     },
   };
