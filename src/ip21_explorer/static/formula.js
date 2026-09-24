@@ -271,8 +271,7 @@ export function parseFormula(text) {
   const refs = [];
   const bare = new Set();
   collectRefs(node, refs, bare);
-  // A row of numbers has no time base to draw against; it needs a tag to
-  // borrow one from.
-  if (!refs.length) throw new Error("a formula needs at least one tag, e.g. =[TI-101] * 2");
+  // A formula of numbers alone (=80) is a constant: the server draws it
+  // across the window, as a limit to hold a trend up against.
   return { node, refs, bare };
 }

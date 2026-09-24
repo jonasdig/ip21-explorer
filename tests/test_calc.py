@@ -200,6 +200,33 @@ def test_a_formula_over_a_broken_one_is_an_error_not_a_trace():
     assert hard and text == "broken cannot be computed: the expression ends too early"
 
 
+def test_a_constant_is_drawn_across_the_whole_window():
+    # =80 as an alarm limit to hold a trend up against.
+    start, end = 1_789_689_600, 1_789_693_200
+    out = compute(SimulatorSource(), [{"id": "c", "expr": "=80", "refs": {}}], start, end)
+    c = out["c"]
+    assert c.error is None
+    assert c.t[0] == start and c.t[-1] == end
+    assert np.all(c.v == 80)
+
+
+def test_a_constant_beside_a_tag_changes_nothing_about_the_tag():
+    items = [{"id": "d", "expr": "=[TI-101] - 80", "refs": {"TI-101": _tag("TI-101")}}]
+    out = compute(SimulatorSource(), items, 1_789_689_600, 1_789_693_200)
+    assert out["d"].error is None and len(out["d"].t) == 61
+
+
+def test_a_constant_totals_like_a_tag_that_never_changes():
+    # One per hour, summed per day: 24 hours in every whole day.
+    start = 1_789_689_600          # 2026-09-18 00:00 UTC, 02:00 in Oslo
+    out = compute(SimulatorSource(), [{"id": "h", "expr": "=total(1, day)", "refs": {}}],
+                  start, start + 2 * 86400, now=start + 3 * 86400)
+    h = out["h"]
+    assert h.error is None
+    whole_days = h.v[:-1][~np.isnan(h.v[:-1])]
+    assert len(whole_days) and np.allclose(whole_days, 24.0)
+
+
 def test_a_formula_that_is_not_in_the_request_is_an_error_not_a_crash():
     items = [_formula("t1", "=[gone] + 1", "Orphan", gone="t9")]
     out = compute(SimulatorSource(), items, 1_789_689_600, 1_789_693_200)

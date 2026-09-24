@@ -329,6 +329,12 @@ class _Computation:
             else:
                 leaves[id(leaf)] = self._function(leaf, refs, parsed, window)
 
+        if not leaves:
+            # Numbers alone (=80): a constant, sampled over the window as a tag
+            # would be, so it draws across the plot and total(1, day) is 24.
+            grid = _constant_grid(window, self.points)
+            return grid, np.array(evaluate(node, lambda leaf: None, len(grid)), dtype=float), False
+
         grid = union_times([t for t, _, _ in leaves.values()])
         columns = dict(zip(leaves, align_onto(list(leaves.values()), grid)))
 
@@ -444,6 +450,13 @@ def _leaves(node: Node) -> Iterator[Node]:
 
 def _empty() -> np.ndarray:
     return np.array([], dtype=float)
+
+
+def _constant_grid(window: Window, points: int) -> np.ndarray:
+    """Evenly spaced times over a window, both ends included, at the interval
+    the window reads tags at - or the one auto would pick for it."""
+    step = window.interval_s or auto_interval(window.end - window.start, points)
+    return np.arange(window.start, window.end + step / 2, step, dtype=float)
 
 
 def _message(exc: Exception) -> str:

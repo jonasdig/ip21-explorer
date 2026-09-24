@@ -172,16 +172,20 @@
    "refs": [
     "A"
    ]
+  },
+  {
+   "text": "=80",
+   "refs": []
+  },
+  {
+   "text": "=2 * 3",
+   "refs": []
   }
  ],
  "error": [
   {
    "text": "=",
    "error": "empty formula"
-  },
-  {
-   "text": "=2 * 3",
-   "error": "a formula needs at least one tag, e.g. =[TI-101] * 2"
   },
   {
    "text": "=[A",

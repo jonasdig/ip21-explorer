@@ -55,7 +55,7 @@ pump ran each day. The preview under the canvas follows every change.*
   `=[TI-101] - [TI-201]`, `=([FI-104]*2)^0.5`, `=avg([TI-101],[TI-201])`, with
   `+ - * / ^`, parentheses and comparisons (`>` `<` `>=` `<=`, which give 1 or
   0). Tag names go in brackets, since the hyphens in IP21 names would
-  otherwise read as minus signs
+  otherwise read as minus signs. A number alone (`=80`) draws a flat line
 - **Totals per calendar period**: `=total([FI-104], day)` turns m3/h into m3
   per day; `=total([FI-104] > 5, day)` counts the hours a pump ran
 - **A function library**: the basics (`abs`, `sqrt`, `min`, `max`, `avg`, …)

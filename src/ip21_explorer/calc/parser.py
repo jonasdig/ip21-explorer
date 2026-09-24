@@ -255,10 +255,8 @@ def parse_formula(text: str) -> Parsed:
     refs: List[str] = []
     bare: Set[str] = set()
     _collect_refs(node, refs, bare)
-    # A row of numbers has no time base to draw against; it needs a tag to
-    # borrow one from.
-    if not refs:
-        raise FormulaError("a formula needs at least one tag, e.g. =[TI-101] * 2")
+    # A formula of numbers alone (=80) is a constant: the engine draws it
+    # across the window, as a limit to hold a trend up against.
     return Parsed(node, refs, bare)
 
 
