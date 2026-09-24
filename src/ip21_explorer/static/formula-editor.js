@@ -20,7 +20,7 @@ import { medianStep, sampleAt } from "./resample.js";
 import { makeTag, reqName, rt, saveState, state } from "./state.js";
 import { insertTags, setTagFields, tagLabel } from "./tags.js";
 import { resolveRange } from "./timerange.js";
-import { $, el, fmtTime, fmtVal } from "./util.js";
+import { $, el, fmtTime, fmtVal, followPointer } from "./util.js";
 
 // The one editor there is. tab and tag say what Apply writes to (tag null =
 // a new row); graph is what is on the canvas.
@@ -135,16 +135,10 @@ function buildShell() {
     selectItem(null);
     const start = { x: e.clientX - session.pan.x, y: e.clientY - session.pan.y };
     canvas.setPointerCapture(e.pointerId);
-    const move = (ev) => {
+    followPointer((ev) => {
       session.pan = { x: ev.clientX - start.x, y: ev.clientY - start.y };
       world.style.transform = `translate(${session.pan.x}px, ${session.pan.y}px)`;
-    };
-    const up = () => {
-      canvas.removeEventListener("pointermove", move);
-      canvas.removeEventListener("pointerup", up);
-    };
-    canvas.addEventListener("pointermove", move);
-    canvas.addEventListener("pointerup", up);
+    });
   });
 
   dialog.addEventListener("keydown", (e) => {
@@ -346,10 +340,7 @@ function paletteItem(label, fields, cls) {
     };
     place(e);
     let moved = false;
-    const move = (ev) => { moved = true; place(ev); };
-    const up = (ev) => {
-      document.removeEventListener("pointermove", move);
-      document.removeEventListener("pointerup", up);
+    followPointer((ev) => { moved = true; place(ev); }, (ev) => {
       ghost.remove();
       const box = shell.canvas.getBoundingClientRect();
       const inside = ev.clientX >= box.left && ev.clientX <= box.right &&
@@ -361,9 +352,7 @@ function paletteItem(label, fields, cls) {
       const node = newNode(session.graph, { ...fields, ...at });
       render();
       selectItem({ node: node.id });
-    };
-    document.addEventListener("pointermove", move);
-    document.addEventListener("pointerup", up);
+    });
   });
   return item;
 }
@@ -498,7 +487,7 @@ function buildNode(node) {
   if (node.type !== "out") {
     const out = el("span", "port out");
     out.title = "Drag to an input";
-    out.addEventListener("pointerdown", (e) => beginWire(e, node.id));
+    out.addEventListener("pointerdown", (e) => dragWire(e, { from: node.id }));
     main.appendChild(out);
   }
   box.appendChild(main);
@@ -687,87 +676,59 @@ function beginMove(e, node, box) {
   selectItem({ node: node.id });
   box.setPointerCapture(e.pointerId);
   const start = { x: e.clientX - node.x, y: e.clientY - node.y };
-  const move = (ev) => {
+  followPointer((ev) => {
     node.x = ev.clientX - start.x;
     node.y = ev.clientY - start.y;
     box.style.left = `${node.x}px`;
     box.style.top = `${node.y}px`;
     renderWires();
-  };
-  const up = () => {
-    box.removeEventListener("pointermove", move);
-    box.removeEventListener("pointerup", up);
-  };
-  box.addEventListener("pointermove", move);
-  box.addEventListener("pointerup", up);
+  });
 }
 
-// Dragging from an output draws a wire that follows the pointer; letting go
-// over an input connects it, replacing whatever that input had.
-function beginWire(e, fromId) {
+// A wire dragged from either end, following the pointer: from an output it is
+// dropped on an input, from an empty input on an output. fixed is the end
+// that stays put - {from} for an output, {to, port} for an input. Letting go
+// over the other kind of port connects them.
+function dragWire(e, fixed) {
   e.preventDefault();
   e.stopPropagation();
-  const a = portPoint(fromId, "out");
-  const world = () => shell.world.getBoundingClientRect();
-  const move = (ev) => {
-    const w = world();
-    renderWires({ a, b: { x: ev.clientX - w.left, y: ev.clientY - w.top } });
-  };
-  const up = (ev) => {
-    document.removeEventListener("pointermove", move);
-    document.removeEventListener("pointerup", up);
-    const target = document.elementFromPoint(ev.clientX, ev.clientY);
-    const dot = target && target.closest(".port.in");
+  const outward = fixed.from != null;
+  const anchor = outward ? portPoint(fixed.from, "out") : portPoint(fixed.to, "in", fixed.port);
+  followPointer((ev) => {
+    const w = shell.world.getBoundingClientRect();
+    const loose = { x: ev.clientX - w.left, y: ev.clientY - w.top };
+    renderWires(outward ? { a: anchor, b: loose } : { a: loose, b: anchor });
+  }, (ev) => {
+    const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+    const dot = hit && hit.closest(outward ? ".port.in" : ".port.out");
     if (dot) {
-      const toId = dot.closest(".fe-node").dataset.id;
-      const port = Number(dot.dataset.port);
-      if (toId !== fromId) {
-        session.graph.wires = session.graph.wires.filter(
-          (w) => !(w.to === toId && w.port === port));
-        session.graph.wires.push({ from: fromId, to: toId, port });
-      }
+      const other = dot.closest(".fe-node").dataset.id;
+      connect(outward
+        ? { from: fixed.from, to: other, port: Number(dot.dataset.port) }
+        : { from: other, to: fixed.to, port: fixed.port });
     }
     render();
-  };
-  document.addEventListener("pointermove", move);
-  document.addEventListener("pointerup", up);
+  });
+}
+
+// A wire into an input replaces whatever that input had. A block is never
+// wired into itself.
+function connect(wire) {
+  if (wire.from === wire.to) return;
+  session.graph.wires = session.graph.wires.filter(
+    (w) => !(w.to === wire.to && w.port === wire.port));
+  session.graph.wires.push(wire);
 }
 
 // Grabbing a wired input picks its wire up again, to move it or drop it; an
 // empty one starts a wire the other way, to be dropped on an output.
 function pickUpWire(e, node, port) {
   const wire = session.graph.wires.find((w) => w.to === node.id && w.port === port);
-  if (!wire) { beginWireFromInput(e, node, port); return; }
+  if (!wire) { dragWire(e, { to: node.id, port }); return; }
   session.graph.wires = session.graph.wires.filter((w) => w !== wire);
   compactPorts(node);
   render();
-  beginWire(e, wire.from);
-}
-
-function beginWireFromInput(e, node, port) {
-  e.preventDefault();
-  e.stopPropagation();
-  const b = portPoint(node.id, "in", port);
-  const world = () => shell.world.getBoundingClientRect();
-  const move = (ev) => {
-    const w = world();
-    renderWires({ a: { x: ev.clientX - w.left, y: ev.clientY - w.top }, b });
-  };
-  const up = (ev) => {
-    document.removeEventListener("pointermove", move);
-    document.removeEventListener("pointerup", up);
-    const target = document.elementFromPoint(ev.clientX, ev.clientY);
-    const dot = target && target.closest(".port.out");
-    const fromId = dot && dot.closest(".fe-node").dataset.id;
-    if (fromId && fromId !== node.id) {
-      session.graph.wires = session.graph.wires.filter(
-        (w) => !(w.to === node.id && w.port === port));
-      session.graph.wires.push({ from: fromId, to: node.id, port });
-    }
-    render();
-  };
-  document.addEventListener("pointermove", move);
-  document.addEventListener("pointerup", up);
+  dragWire(e, { from: wire.from });
 }
 
 // A variadic block keeps its inputs packed, so taking one out of the middle

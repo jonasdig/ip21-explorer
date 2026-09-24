@@ -3,7 +3,7 @@
 import { appendValueRows, chart, currentXRange } from "./chart.js";
 import { activeTab, rt, saveState } from "./state.js";
 import { isXyMode } from "./xy-chart.js";
-import { el, fmtTime } from "./util.js";
+import { el, fmtTime, followPointer } from "./util.js";
 
 let scooterEls = [];        // [{line, box}] for the active tab
 
@@ -50,21 +50,14 @@ function beginScooterDrag(e, scooter, index) {
   const overRect = chart.over.getBoundingClientRect();
   const cur = currentXRange();
 
-  const onMove = (ev) => {
-    let t = chart.posToVal(ev.clientX - overRect.left, "x");
-    t = Math.max(cur.start, Math.min(cur.end, t));
-    scooter.t = t;
+  followPointer((ev) => {
+    const t = chart.posToVal(ev.clientX - overRect.left, "x");
+    scooter.t = Math.max(cur.start, Math.min(cur.end, t));
     positionScooter(index);
-  };
-  const onUp = (ev) => {
+  }, () => {
     els.line.classList.remove("dragging");
-    els.line.releasePointerCapture(ev.pointerId);
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
     saveState();
-  };
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
+  });
 }
 
 // Dragging the readout box moves it vertically, so it can be pulled out of
@@ -79,19 +72,13 @@ function beginBoxDrag(e, scooter, index) {
   const startY = e.clientY;
   const startDy = scooter.dy || 0;
 
-  const onMove = (ev) => {
+  followPointer((ev) => {
     scooter.dy = startDy + (ev.clientY - startY);
     positionScooter(index);
-  };
-  const onUp = (ev) => {
+  }, () => {
     els.box.classList.remove("dragging");
-    els.box.releasePointerCapture(ev.pointerId);
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
     saveState();
-  };
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
+  });
 }
 
 export function positionScooters() {

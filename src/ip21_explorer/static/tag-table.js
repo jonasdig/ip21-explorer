@@ -11,7 +11,7 @@ import {
   autoScale, ensureMaps, insertTags, moveTag, removeTag, renderTags,
   setNavTag, setTagField,
 } from "./tags.js";
-import { $, el } from "./util.js";
+import { $, el, followPointer } from "./util.js";
 
 // A row is a grid of its own rather than one grid for the whole table, so a
 // row can carry hover, a border and a drag ghost. The columns still line up
@@ -125,20 +125,13 @@ function beginColumnResize(e, cell, key) {
   e.stopPropagation();
   const startX = e.clientX;
   const startW = cell.getBoundingClientRect().width;
-  const move = (ev) => {
+  followPointer((ev) => {
     const w = Math.max(MIN_COLUMN_W, Math.round(startW + ev.clientX - startX));
     // Live, without saving on every pixel.
     state.tagColumns = { order: columnLayout().map((c) => c.key),
       widths: { ...((state.tagColumns || {}).widths || {}), [key]: w } };
     relayoutColumns();
-  };
-  const up = () => {
-    document.removeEventListener("pointermove", move);
-    document.removeEventListener("pointerup", up);
-    saveState();
-  };
-  document.addEventListener("pointermove", move);
-  document.addEventListener("pointerup", up);
+  }, saveState);
 }
 
 function beginColumnMove(e, head, key) {
@@ -162,7 +155,7 @@ function beginColumnMove(e, head, key) {
       : cells[cells.length - 1].getBoundingClientRect().right + 3;
     return { index, edge, keys: cells.map((c) => c.dataset.key) };
   };
-  const move = (ev) => {
+  followPointer((ev) => {
     if (!marker && Math.abs(ev.clientX - startX) < 5) return;
     if (!marker) {
       marker = el("div", "col-marker");
@@ -171,10 +164,7 @@ function beginColumnMove(e, head, key) {
     }
     target = dropIndex(ev.clientX);
     marker.style.left = `${target.edge - head.getBoundingClientRect().left + head.scrollLeft}px`;
-  };
-  const up = () => {
-    document.removeEventListener("pointermove", move);
-    document.removeEventListener("pointerup", up);
+  }, () => {
     if (!marker) return;
     marker.remove();
     head.classList.remove("moving");
@@ -186,9 +176,7 @@ function beginColumnMove(e, head, key) {
     if (to > from) to -= 1;
     keys.splice(to, 0, key);
     saveColumns((next) => { next.order = [PINNED_FIRST, ...keys, PINNED_LAST]; });
-  };
-  document.addEventListener("pointermove", move);
-  document.addEventListener("pointerup", up);
+  });
 }
 
 export const TAG_TABLE_DEFAULT_H = 200;
@@ -655,17 +643,12 @@ function beginRowDrag(e, uid) {
   };
   place(e.clientY);
 
-  const onMove = (ev) => place(ev.clientY);
-  const onUp = () => {
-    e.target.removeEventListener("pointermove", onMove);
-    e.target.removeEventListener("pointerup", onUp);
+  followPointer((ev) => place(ev.clientY), () => {
     row.classList.remove("dragging");
     row.style.transform = "";
     line.remove();
     moveTag(activeTab(), from, to);
-  };
-  e.target.addEventListener("pointermove", onMove);
-  e.target.addEventListener("pointerup", onUp);
+  });
 }
 
 // Dragging the top edge trades chart height for table height. The chart is
@@ -676,17 +659,10 @@ export function beginTableResize(e) {
   e.target.setPointerCapture(e.pointerId);
   const startY = e.clientY;
   const startH = panel.getBoundingClientRect().height;
-  const onMove = (ev) => {
+  followPointer((ev) => {
     state.tagTableHeight = clampTableHeight(startH + (startY - ev.clientY));
     panel.style.height = `${state.tagTableHeight}px`;
-  };
-  const onUp = () => {
-    e.target.removeEventListener("pointermove", onMove);
-    e.target.removeEventListener("pointerup", onUp);
-    saveState();
-  };
-  e.target.addEventListener("pointermove", onMove);
-  e.target.addEventListener("pointerup", onUp);
+  }, saveState);
 }
 
 // A tag that was just added can be anywhere in a table of forty rows, so the

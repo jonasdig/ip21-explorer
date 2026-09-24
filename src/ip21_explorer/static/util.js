@@ -9,6 +9,20 @@ export function el(tag, cls, text) {
 
 export function $(id) { return document.getElementById(id); }
 
+// Follows a pointer from the pointerdown that started a drag to its release.
+// The listeners sit on the document, so a drag that leaves its element - or
+// outlives it, when a render replaces it - still ends; a captured pointer's
+// events bubble up there too.
+export function followPointer(onMove, onUp) {
+  const up = (ev) => {
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", up);
+    if (onUp) onUp(ev);
+  };
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", up);
+}
+
 export function pad2(n) { return String(n).padStart(2, "0"); }
 
 export function fmtTime(t, withSeconds) {

@@ -13,7 +13,7 @@ import { alignOnto, unionTimes } from "./resample.js";
 import { activeTab, rt, saveState, state } from "./state.js";
 import { tagLabel } from "./tags.js";
 import { renderToolbar } from "./toolbar.js";
-import { $, el, fmtTime, fmtVal } from "./util.js";
+import { $, el, fmtTime, fmtVal, followPointer } from "./util.js";
 
 const TAU = Math.PI * 2;
 const XY_DOT_R = 2.5;      // CSS px
@@ -403,16 +403,13 @@ export function initXyLegend() {
     const wrap = $("chart-wrap").getBoundingClientRect();
     const box = bar.getBoundingClientRect();
     const dx = e.clientX - box.left, dy = e.clientY - box.top;
-    const onMove = (ev) => {
+    followPointer((ev) => {
       state.xyLegendPos = {
         x: (ev.clientX - dx - wrap.left) / wrap.width,
         y: (ev.clientY - dy - wrap.top) / wrap.height,
       };
       placeXyLegend();
-    };
-    const onUp = () => {
-      bar.removeEventListener("pointermove", onMove);
-      bar.removeEventListener("pointerup", onUp);
+    }, () => {
       // Store where it actually ended up, after the clamp.
       const end = bar.getBoundingClientRect();
       state.xyLegendPos = {
@@ -420,9 +417,7 @@ export function initXyLegend() {
         y: (end.top - wrap.top) / wrap.height,
       };
       saveState();
-    };
-    bar.addEventListener("pointermove", onMove);
-    bar.addEventListener("pointerup", onUp);
+    });
   });
   bar.addEventListener("dblclick", () => {
     state.xyLegendPos = null;
