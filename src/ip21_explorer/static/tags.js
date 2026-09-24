@@ -11,7 +11,7 @@ import { loadData, rebuildJoined, recomputeFormulas } from "./data.js";
 import { ensureNavData, renderNavigator } from "./navigator.js";
 import { positionScooters } from "./scooters.js";
 import {
-  activeTab, byUid, makeTag, newUid, normalizeInterval, normalizeTagName,
+  activeTab, byUid, newUid, normalizeInterval, normalizeTagName,
   reqName, rt, saveState, state,
 } from "./state.js";
 import { renderTagTable, revealTagRow } from "./tag-table.js";
@@ -197,21 +197,12 @@ export async function insertTags(tab, tags, at) {
   return added;
 }
 
-async function insertTag(tab, tag, at) {
-  return (await insertTags(tab, [tag], at)).length > 0;
-}
-
-async function addTag(info) {
-  const tab = activeTab();
-  await insertTag(tab, makeTag(info));
-}
-
 export async function duplicateTag(uid) {
   const tab = activeTab();
   const src = byUid(tab, uid);
   if (!src) return;
   const copy = { ...src, uid: newUid(), maps: src.maps.slice() };
-  await insertTag(tab, copy, tab.tags.indexOf(src) + 1);
+  await insertTags(tab, [copy], tab.tags.indexOf(src) + 1);
 }
 
 export function removeTags(tab, uids) {
@@ -410,11 +401,11 @@ export function autoScale(tab, tag) {
   setTagFields(tab, tag, { min: null, max: null });
 }
 
-// Which tag owns the gridlines - and with them the navigator band.
-export function setAxisOwner(tab, uid) {
+// Which tag the navigator band follows. Stored as axisUid, the name it had
+// when it also chose the plot's gridlines, because saved plots carry it.
+export function setNavTag(tab, uid) {
   tab.axisUid = uid;
   renderTags();
-  renderChart();
   ensureNavData(tab);
   renderNavigator();
   saveState();

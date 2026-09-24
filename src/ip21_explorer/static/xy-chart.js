@@ -30,7 +30,7 @@ const VIRIDIS = [
 export function isXyMode(tab) { return tab.plotMode === "xy"; }
 
 // The colour for a fraction of the window, 0 = oldest.
-export function xyColor(frac) {
+function xyColor(frac) {
   const x = frac <= 0 ? 0 : frac >= 1 ? 1 : frac;
   const pos = x * (VIRIDIS.length - 1);
   const i = Math.min(VIRIDIS.length - 2, Math.floor(pos));

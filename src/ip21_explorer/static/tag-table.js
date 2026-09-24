@@ -9,7 +9,7 @@ import { openMenu, openSwatchMenu, showTagMenu } from "./menu.js";
 import { activeTab, byUid, makeTag, normalizeTagName, saveState, state } from "./state.js";
 import {
   autoScale, ensureMaps, insertTags, moveTag, removeTag, renderTags,
-  setAxisOwner, setTagField,
+  setNavTag, setTagField,
 } from "./tags.js";
 import { $, el } from "./util.js";
 
@@ -300,7 +300,7 @@ function buildTagRow(uid) {
   axis.type = "radio";
   axis.title = "The tag the navigator band follows";
   axis.addEventListener("change", () => {
-    if (axis.checked) setAxisOwner(activeTab(), uid);
+    if (axis.checked) setNavTag(activeTab(), uid);
   });
   cellOf(row, "axis").appendChild(mark(axis, "axis"));
 

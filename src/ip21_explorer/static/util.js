@@ -1,7 +1,5 @@
 /* DOM shortcuts, number and time formatting, and the error/notice box. */
 
-import { INTERVALS } from "./constants.js";
-
 export function el(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -36,11 +34,6 @@ export function fmtSpan(seconds) {
   if (seconds >= 3600) return `${Math.round(seconds / 3600)} h`;
   if (seconds >= 60) return `${Math.round(seconds / 60)} min`;
   return `${Math.round(seconds)} s`;
-}
-
-export function intervalLabel(value) {
-  const item = INTERVALS.find((i) => i.value === value);
-  return item ? item.label : `${value} s`;
 }
 
 // Reads what the time fields accept, in the same 24h dd.mm.yyyy format

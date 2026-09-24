@@ -49,8 +49,6 @@ export const STORAGE_KEY = "ip21explorer.v1";
 // Each search is real work for the IP21 server: keep them specific and rare.
 export const MIN_QUERY_LEN = 2;
 export const SEARCH_DEBOUNCE_MS = 350;
-// Finest sample IP21 holds; the server's NICE_INTERVALS floor matches it.
-const MIN_INTERVAL_S = 4;
 // One minute is 15 samples at the 4 s floor; anything tighter is a flat line.
 export const MIN_SPAN_S = 60;
 export const MAX_SPAN_S = 5 * 366 * 24 * 3600;

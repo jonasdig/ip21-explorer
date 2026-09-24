@@ -193,10 +193,6 @@ export function reqName(tag) {
   return tag.map ? `${tag.name};${tag.map}` : tag.name;
 }
 
-function byName(tab, name) {
-  return tab.tags.find((t) => t.name === name);
-}
-
 export function byUid(tab, uid) {
   return tab.tags.find((t) => t.uid === uid);
 }

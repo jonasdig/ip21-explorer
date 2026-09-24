@@ -226,7 +226,6 @@ function buildShell() {
     blocks, text, errors, preview, apply };
 }
 
-// Every block the parser knows, grouped as a toolbox reads.
 // The arithmetic, which has no place in the server's catalog because the
 // evaluator knows it by heart.
 function operatorBlocks() {
@@ -255,9 +254,10 @@ function fnFields(spec) {
   return { type: "fn", name: spec.name, params };
 }
 
-// The palette's blocks: the arithmetic and Basic first, then one foldable
-// group per library toolbox. A word in the filter box searches every group at
-// once, by name and by what the function says it does.
+// Every block the parser knows, grouped as a toolbox reads: the arithmetic
+// and Basic first, then one foldable group per library toolbox. A word in the
+// filter box searches every group at once, by name and by what the function
+// says it does.
 function fillBlocks(query) {
   const box = shell.blocks;
   box.innerHTML = "";
@@ -270,8 +270,7 @@ function fillBlocks(query) {
     matches(label, (BLOCK_HELP[helpKey(fields)] || {}).short));
   for (const group of functionGroups()) {
     const found = group.functions.filter((spec) => matches(spec.name, spec.short));
-    const items = found.map((spec) => [
-      spec.name.includes(".") ? spec.name.split(".")[1] : spec.name, fnFields(spec)]);
+    const items = found.map((spec) => [shortName(spec.name), fnFields(spec)]);
     groups.push([group.name, group.name === "Basic" ? basic.concat(items) : items]);
   }
   if (!groups.some(([name]) => name === "Basic")) groups.unshift(["Basic", basic]);
@@ -313,19 +312,17 @@ function fillRows() {
   }
 }
 
-// A palette entry: click to drop the block mid-canvas, or drag it to a spot.
-// What a block says about itself: our own words for the arithmetic, and the
-// library's own documentation for everything else.
+// What a block says about itself: our own words for the arithmetic and our
+// own functions, and the library's own documentation for everything else.
 function blockHelp(node) {
-  if (node.type !== "fn") return BLOCK_HELP[helpKey(node)];
-  const spec = functionSpec(node.name);
-  if (!spec) return BLOCK_HELP[helpKey(node)];
   const own = BLOCK_HELP[helpKey(node)];
-  if (own) return own;
+  const spec = node.type === "fn" && !own ? functionSpec(node.name) : null;
+  if (!spec) return own;
   const long = (spec.long || []).slice();
-  for (const about of spec.inputNames || []) {
-    if ((spec.inputNames || []).length < 2) break;
-    long.push(`Input ${about.name} - ${about.label || about.help}`);
+  const inputs = spec.inputNames || [];
+  // One input needs no introduction; several have to say which is which.
+  if (inputs.length > 1) {
+    for (const about of inputs) long.push(`Input ${about.name} - ${about.label || about.help}`);
   }
   for (const param of spec.params || []) {
     const shown = [param.label || param.name, param.help].filter(Boolean).join(": ");
@@ -334,6 +331,7 @@ function blockHelp(node) {
   return { short: spec.short || spec.name, long: long.length ? long : null };
 }
 
+// A palette entry: click to drop the block mid-canvas, or drag it to a spot.
 function paletteItem(label, fields, cls) {
   const item = el("div", `fe-item ${cls}`, label);
   const help = blockHelp(fields);

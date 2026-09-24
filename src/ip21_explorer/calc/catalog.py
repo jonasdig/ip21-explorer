@@ -56,13 +56,6 @@ class Param:
                 return value
         return word
 
-    def word_for(self, value: Any) -> Any:
-        """The word a formula writes for one of the function's own values."""
-        for choice, known in self.choice_values:
-            if known == value:
-                return choice
-        return value
-
 
 @dataclass(frozen=True)
 class FunctionSpec:
@@ -83,9 +76,6 @@ class FunctionSpec:
     call: Optional[Callable[..., Any]] = None
     # A many-input function of ours (min/max/avg) takes any number.
     variadic: bool = False
-
-    def param(self, name: str) -> Optional[Param]:
-        return next((p for p in self.params if p.name == name), None)
 
 
 def read_word(spec: FunctionSpec, param: Param, word: str) -> Any:
