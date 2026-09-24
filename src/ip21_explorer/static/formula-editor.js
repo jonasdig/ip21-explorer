@@ -55,8 +55,9 @@ export function openFormulaEditor(tab, tag, seed) {
   }
   session = { tab, tag: tag && isComputed(tag) ? tag : null, graph, pan: { x: 0, y: 0 },
     selected: null, preview: null, previewId: "out", helpFor: null,
-    // The preview's request to the server, replaced by each newer one.
-    abort: null, previewSeq: 0 };
+    // The preview's request to the server, replaced by each newer one, and
+    // the last answer it got: {key, results}.
+    abort: null, previewSeq: 0, answered: null };
   shell.title.textContent = session.tag
     ? `Formula: ${tagLabel(tab, session.tag)}` : "New formula";
   fillRows();
@@ -826,12 +827,20 @@ async function renderPreview() {
   if (!errors.length) {
     const { start, end, points } = previewWindow(current.tab);
     const texts = [...new Set([text, ...blocks.values()])];
-    try {
-      results = await previewFormulas(current.tab, current.tag, texts, start, end, points,
-        current.abort.signal);
-    } catch (err) {
-      if (err.name === "AbortError") return;
-      failure = err.message;
+    // One answer covers every block, so choosing which one to preview - or
+    // opening a block's help, or tidying - has nothing new to ask.
+    const key = JSON.stringify([[...texts].sort(), start, end, points]);
+    if (current.answered && current.answered.key === key) {
+      results = current.answered.results;
+    } else {
+      try {
+        results = await previewFormulas(current.tab, current.tag, texts, start, end, points,
+          current.abort.signal);
+        current.answered = { key, results };
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        failure = err.message;
+      }
     }
   }
   if (session !== current || seq !== current.previewSeq || !shell.dialog.open) return;
