@@ -2,6 +2,7 @@
 
 import { INTERVALS, LABEL_MODES, STORAGE_KEY } from "./constants.js";
 import { isFormula } from "./formula.js";
+import { normalizeLimits } from "./limits.js";
 import { TAG_TABLE_DEFAULT_H, clampTableHeight } from "./tag-table.js";
 
 export let state = null;      // { tabs: [...], activeTabId }
@@ -65,6 +66,7 @@ export function makeTag(info) {
     // A formula's blocks, from the block editor, kept while its text is still
     // theirs: {text, graph}. Only so they come back where they were left.
     graphLayout: info.graphLayout || null,
+    limits: normalizeLimits(info.limits),  // alarm limits: [{kind: "H", value: 80}]
   };
 }
 
@@ -119,6 +121,7 @@ function migrateTab(tab, oldState) {
     tag.points = tag.points === true;
     tag.symbol = tag.symbol || null;
     tag.pointColor = tag.pointColor === "fixed" ? "fixed" : "time";
+    tag.limits = normalizeLimits(tag.limits);
   }
   if (!tab.axisUid && tab.axisTag) {
     const match = tab.tags.find((t) => t.name === normalizeTagName(tab.axisTag));

@@ -3,6 +3,7 @@
 import { favoriteMaps, orderedMaps, saveFavorites } from "./api.js";
 import { isComputed } from "./computed.js";
 import { openFormulaEditor } from "./formula-editor.js";
+import { LIMITS_HELP, formatLimits, parseLimits } from "./limits.js";
 import { isXyMode } from "./xy-chart.js";
 import { INTERVALS, SAMPLES } from "./constants.js";
 import { openMenu, openSwatchMenu, showTagMenu } from "./menu.js";
@@ -29,6 +30,7 @@ const TAG_COLUMNS = [
   { key: "min", label: "Min", width: "68px" },
   { key: "max", label: "Max", width: "68px" },
   { key: "auto", label: "", width: "38px" },
+  { key: "limits", label: "Limits", width: "96px" },
   { key: "unit", label: "Unit", width: "56px" },
   { key: "desc", label: "Description", width: "minmax(120px, 2fr)" },
   { key: "remove", label: "", width: "24px" },
@@ -41,17 +43,18 @@ const MIN_COLUMN_W = 20;
 
 // The columns as the user arranged them - dragged into another order, or
 // dragged wider - over the defaults above. Keys it does not know, or misses,
-// fall back to the defaults, so a column added later still shows up.
+// fall back to the defaults, so a column added later still shows up: next to
+// the one it follows by default, rather than at the far end.
 function columnLayout() {
   const saved = state.tagColumns || {};
   const known = new Map(TAG_COLUMNS.map((c) => [c.key, c]));
   const middle = (saved.order || []).filter((k) =>
     known.has(k) && k !== PINNED_FIRST && k !== PINNED_LAST);
-  for (const col of TAG_COLUMNS) {
-    if (!middle.includes(col.key) && col.key !== PINNED_FIRST && col.key !== PINNED_LAST) {
-      middle.push(col.key);
-    }
-  }
+  TAG_COLUMNS.forEach((col, i) => {
+    if (middle.includes(col.key) || col.key === PINNED_FIRST || col.key === PINNED_LAST) return;
+    const after = i > 0 ? middle.indexOf(TAG_COLUMNS[i - 1].key) : -1;
+    middle.splice(after + 1, 0, col.key);
+  });
   const widths = saved.widths || {};
   return [PINNED_FIRST, ...middle, PINNED_LAST].map((key) => {
     const w = Number(widths[key]);
@@ -367,6 +370,16 @@ function buildTagRow(uid) {
   auto.addEventListener("click", () => autoScale(activeTab(), tagOf()));
   cellOf(row, "auto").appendChild(mark(auto, "auto"));
 
+  // Text that does not read as limits stays in the field, marked, and the
+  // row keeps the limits it had until the text is put right.
+  const limits = el("input");
+  limits.type = "text";
+  limits.spellcheck = false;
+  limits.placeholder = "H 80, L 20";
+  limits.title = LIMITS_HELP;
+  limits.addEventListener("change", () => commitLimits(tagOf(), limits));
+  cellOf(row, "limits").appendChild(mark(limits, "limits"));
+
   const remove = el("button", "close", "×");
   remove.title = "Remove tag";
   remove.addEventListener("click", () => removeTag(uid));
@@ -384,6 +397,17 @@ function commitScale(tag, key, input) {
   const next = Number.isFinite(value) ? value : null;
   if (next === tag[key]) return;
   setTagField(activeTab(), tag, key, next);
+}
+
+// Idempotent for the same reason as commitScale: a keyboard move commits
+// before it leaves the cell, and change fires on the way out anyway.
+function commitLimits(tag, input) {
+  if (!tag) return;
+  const read = parseLimits(input.value);
+  input.classList.toggle("bad", !!read.error);
+  input.title = read.error || LIMITS_HELP;
+  if (read.error || formatLimits(read.limits) === formatLimits(tag.limits)) return;
+  setTagField(activeTab(), tag, "limits", read.limits);
 }
 
 function updateTagRow(tab, tag, row) {
@@ -410,6 +434,9 @@ function updateTagRow(tab, tag, row) {
   set("step", (c) => { c.checked = !!tag.step; });
   set("min", (c) => { c.value = tag.min == null ? "" : tag.min; });
   set("max", (c) => { c.value = tag.max == null ? "" : tag.max; });
+  // Rewritten tidily ("l20;h80" becomes "H 80, L 20") - but not over text
+  // still waiting to be corrected.
+  set("limits", (c) => { if (!c.classList.contains("bad")) c.value = formatLimits(tag.limits); });
 
   // A tag the last fetch had nothing for says so in its own row: the plot can
   // only show a missing trace as absence, which reads as "no data yet".

@@ -13,7 +13,7 @@ import { addTab, renderTabs } from "./tabs.js";
 import { nextColor } from "./tags.js";
 import { $, el, fmtTime, showError } from "./util.js";
 
-const CONFIG_VERSION = 6;
+const CONFIG_VERSION = 7;
 
 // A complete snapshot of a plot: everything needed to recreate it exactly,
 // minus runtime-only identity (uid) and caches (_mapsChecked).
@@ -29,8 +29,6 @@ export function tabToConfig(tab, name) {
     axisIndex: tab.tags.findIndex((t) => t.uid === tab.axisUid),
     linked: !!tab.linked,
     plotMode: tab.plotMode === "xy" ? "xy" : "time",
-    // Indices, like axisIndex: a repeated tag name cannot be told apart by
-    // name, and a formula's "name" is an expression.
     // Index, like axisIndex: a repeated tag name cannot be told apart by name,
     // and a formula's "name" is an expression. The y tag is the other ticked
     // row, so it needs nothing of its own.
@@ -62,6 +60,7 @@ function configToTab(name, config) {
       symbol: t.symbol,
       pointColor: t.pointColor,
       graphLayout: t.graphLayout,
+      limits: t.limits,
     });
     tag.map = t.map ?? null;
     tag.color = t.color || null;

@@ -8,6 +8,7 @@ import { renderChart } from "./chart.js";
 import { isComputed } from "./computed.js";
 import { PALETTE } from "./constants.js";
 import { loadData, rebuildJoined, recomputeFormulas } from "./data.js";
+import { normalizeLimits } from "./limits.js";
 import { ensureNavData, renderNavigator } from "./navigator.js";
 import { positionScooters } from "./scooters.js";
 import {
@@ -303,6 +304,10 @@ export function setTagFields(tab, tag, patch) {
       redraw = true;
     } else if (key === "min" || key === "max") {
       tag[key] = Number.isFinite(value) ? value : null;
+      redraw = true;
+    } else if (key === "limits") {
+      // Drawn on the plot only: nothing to fetch, nothing to recompute.
+      tag.limits = normalizeLimits(value);
       redraw = true;
     } else if (key === "unit") {
       const text = String(value).trim();

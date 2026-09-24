@@ -520,6 +520,8 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+#tag-table .cell.limits input { width: 100%; font-variant-numeric: tabular-nums; }
+#tag-table .cell.limits input.bad { color: #e57373; border-color: #e57373; }
 #tag-table .cell.map { display: flex; gap: 3px; align-items: center; }
 #tag-table .cell.map select { flex: 1; min-width: 0; }
 #tag-table .cell.sample select, #tag-table .cell.interval select { width: 100%; }
