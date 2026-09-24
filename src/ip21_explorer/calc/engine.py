@@ -4,14 +4,17 @@ The browser decides what a reference in a formula means, because that depends
 on its table (a row's map, a formula row's short name). It sends each formula
 as an item:
 
-    {"id": "t12", "expr": "=[TI-101] - [x]",
+    {"id": "t12", "expr": "=[TI-101] - [x]", "name": "Net",
      "refs": {"TI-101": {"tag": "TI-101;IP_AnalogMap", "sample": "INT",
                          "interval": "auto", "step": false},
               "x": {"formula": "t7"}}}
 
-where a {"formula": id} names another item of the same request. Nothing here
-knows about HTTP, so a service without a browser - one watching for a
-condition to raise an alarm - can compute the same items the same way.
+where a {"formula": id} names another item of the same request, and name
+(optional) is what messages call the formula. Everything else wrong with a
+formula - one that does not parse, one that loops back on itself through
+others - is found here. Nothing here knows about HTTP, so a service without
+a browser - one watching for a condition to raise an alarm - can compute
+the same items the same way.
 """
 from __future__ import annotations
 
@@ -145,12 +148,63 @@ class _Computation:
         self.data: Dict[ReadKey, Tuple[np.ndarray, np.ndarray]] = {}
         self.failed: Dict[ReadKey, str] = {}
         self.done: Dict[Tuple[str, Window], Result] = {}
-        self.walking: List[str] = []
         for item_id, item in self.items.items():
             try:
                 self.parsed[item_id] = parse_formula(item.get("expr", ""))
             except FormulaError as exc:
                 self.parse_errors[item_id] = str(exc)
+        self.cyclic = self._find_cycles()
+
+    def name(self, item_id: str) -> str:
+        """What a formula is called in a message: the name the item was sent
+        with, which for a row is its short description."""
+        return str(self.items.get(item_id, {}).get("name") or item_id)
+
+    # -- formulas built on formulas ----------------------------------------------
+
+    def _formula_refs(self, item_id: str) -> List[str]:
+        """The other items a formula reads, among the references it uses."""
+        parsed = self.parsed.get(item_id)
+        if parsed is None:
+            return []
+        refs = self.items[item_id].get("refs") or {}
+        specs = (refs.get(ref) or {} for ref in parsed.refs)
+        return [str(spec["formula"]) for spec in specs if "formula" in spec]
+
+    def _find_cycles(self) -> Dict[str, str]:
+        """Every formula that is part of a loop, and the loop by name.
+
+        Each member is marked, not only the one a walk happens to come back
+        to: two rows that point at each other are both at fault, and neither
+        must sit there looking merely unlucky.
+        """
+        cyclic: Dict[str, str] = {}
+        state: Dict[str, int] = {}      # 1: on the path walked now, 2: done
+        path: List[str] = []
+
+        def walk(item_id: str) -> None:
+            if item_id not in self.items or state.get(item_id) == 2:
+                return
+            if state.get(item_id) == 1:
+                loop = [self.name(member) for member in path[path.index(item_id):]]
+                if len(loop) == 1:
+                    cyclic.setdefault(item_id, f"{loop[0]} refers to itself")
+                    return
+                # Told from each member's own row, so each starts with itself.
+                for at, member in enumerate(path[path.index(item_id):]):
+                    turn = loop[at:] + loop[:at]
+                    cyclic.setdefault(member, "circular formula: " + " → ".join(turn + turn[:1]))
+                return
+            state[item_id] = 1
+            path.append(item_id)
+            for other in self._formula_refs(item_id):
+                walk(other)
+            path.pop()
+            state[item_id] = 2
+
+        for item_id in self.items:
+            walk(item_id)
+        return cyclic
 
     # -- what has to be read -------------------------------------------------
 
@@ -244,16 +298,12 @@ class _Computation:
             return self.done[memo]
         if item_id in self.parse_errors:
             return Result(_empty(), _empty(), error=(self.parse_errors[item_id], True))
-        if item_id in self.walking:
-            chain = self.walking[self.walking.index(item_id):] + [item_id]
-            raise RefError("circular formula: " + " → ".join(chain), True)
-        self.walking.append(item_id)
+        if item_id in self.cyclic:
+            return Result(_empty(), _empty(), error=(self.cyclic[item_id], True))
         try:
             out = self._evaluate(item_id, window)
         except RefError as exc:
             out = Result(_empty(), _empty(), error=(exc.text, exc.hard))
-        finally:
-            self.walking.pop()
         self.done[memo] = out
         return out
 
@@ -334,7 +384,14 @@ class _Computation:
         if not spec:
             raise RefError(f"{ref} is not known here{hint}", True)
         if "formula" in spec:
-            other = self.result(str(spec["formula"]), window)
+            other_id = str(spec["formula"])
+            if other_id not in self.items:
+                raise RefError(f"{ref} is not known here{hint}", True)
+            other = self.result(other_id, window)
+            if other.error and other.error[1]:
+                # Built on a formula that is wrong: this one cannot be right,
+                # and should say where the fault lies.
+                raise RefError(f"{ref} cannot be computed: {other.error[0]}", True)
             if other.error and not len(other.t):
                 raise RefError(f"{ref} has no data in this window{hint}", False)
             return other.t, other.v, other.step
@@ -407,10 +464,4 @@ def compute(source: DataSource, items: Sequence[Dict[str, Any]], start: float,
     for item_id in run.items:
         keys.extend(run.needs(item_id, run.window))
     run.fetch(keys)
-    out: Dict[str, Result] = {}
-    for item_id in run.items:
-        try:
-            out[item_id] = run.result(item_id, run.window)
-        except RefError as exc:
-            out[item_id] = Result(_empty(), _empty(), error=(exc.text, exc.hard))
-    return out
+    return {item_id: run.result(item_id, run.window) for item_id in run.items}

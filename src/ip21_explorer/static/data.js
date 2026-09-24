@@ -99,7 +99,7 @@ export async function loadData(tab) {
     const intervals = results.map((g) => g.intervalS).filter((i) => i > 0);
     r.intervalS = intervals.length ? Math.min(...intervals) : null;
     r.points = points;
-    if (computed) applyComputed(tab, r, computed.plan, computed.answer);
+    if (computed) applyComputed(tab, r, computed);
     rebuildJoined(tab, r);
     showError(first || computeError);
     if (tab.id === state.activeTabId) { renderTags(); renderChart(); }
@@ -169,7 +169,7 @@ export async function recomputeFormulas(tab) {
     return;
   }
   if (seq !== r.formulaSeq || r.inFlight) return;
-  applyComputed(tab, r, computed.plan, computed.answer);
+  applyComputed(tab, r, computed);
   rebuildJoined(tab, r);
   if (tab.id === state.activeTabId) { renderTags(); renderChart(); }
 }

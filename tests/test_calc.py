@@ -158,7 +158,53 @@ def test_parse_errors_and_cycles_are_reported_per_item():
     ]
     out = compute(sim, items, 1_789_689_600, 1_789_693_200)
     assert out["p"].error == ("the expression ends too early", True)
-    assert "circular" in out["y"].error[0] or "circular" in out["x"].error[0]
+    # Both ends of the loop are at fault, not only the one the walk came back to.
+    assert out["x"].error[1] and out["y"].error[1]
+    assert "circular" in out["x"].error[0] and "circular" in out["y"].error[0]
+
+
+def _formula(item_id, expr, name, **formulas):
+    return {"id": item_id, "expr": expr, "name": name,
+            "refs": {ref: {"formula": other} for ref, other in formulas.items()}}
+
+
+def test_a_loop_is_told_by_name_on_every_member():
+    items = [
+        _formula("t1", "=[net] + 1", "Flow", net="t2"),
+        _formula("t2", "=[flow] * 2", "Net", flow="t1"),
+        _formula("t3", "=[TI-101] + 1", "Clean"),
+    ]
+    items[2]["refs"] = {"TI-101": _tag("TI-101")}
+    out = compute(SimulatorSource(), items, 1_789_689_600, 1_789_693_200)
+    assert out["t1"].error == ("circular formula: Flow → Net → Flow", True)
+    assert out["t2"].error == ("circular formula: Net → Flow → Net", True)
+    assert out["t3"].error is None and len(out["t3"].t)
+
+
+def test_a_formula_that_uses_itself_says_so():
+    items = [_formula("t1", "=[me] + 1", "Me", me="t1")]
+    out = compute(SimulatorSource(), items, 1_789_689_600, 1_789_693_200)
+    assert out["t1"].error == ("Me refers to itself", True)
+
+
+def test_a_formula_over_a_broken_one_is_an_error_not_a_trace():
+    # The browser used to leave such a row out of the request, and it kept
+    # whatever trace it had last - with no word about why.
+    items = [
+        _formula("t1", "=[A] +", "Broken"),
+        _formula("t2", "=[broken] * 2", "Built on it", broken="t1"),
+    ]
+    out = compute(SimulatorSource(), items, 1_789_689_600, 1_789_693_200)
+    assert not len(out["t2"].t)
+    text, hard = out["t2"].error
+    assert hard and text == "broken cannot be computed: the expression ends too early"
+
+
+def test_a_formula_that_is_not_in_the_request_is_an_error_not_a_crash():
+    items = [_formula("t1", "=[gone] + 1", "Orphan", gone="t9")]
+    out = compute(SimulatorSource(), items, 1_789_689_600, 1_789_693_200)
+    text, hard = out["t1"].error
+    assert hard and text.startswith("gone is not known here")
 
 
 def test_bare_name_hint_in_errors():

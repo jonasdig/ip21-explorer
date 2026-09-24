@@ -3,7 +3,7 @@
 
 import { apiFunctions, apiSearchTags, ensureFavorites } from "./api.js";
 import { chart, chartSize, renderChart } from "./chart.js";
-import { computedPlan } from "./computed.js";
+import { formulaItems } from "./computed.js";
 import { loadData } from "./data.js";
 import { parseFormula, setFunctionCatalog } from "./formula.js";
 import { hideContextMenu } from "./menu.js";
@@ -85,5 +85,5 @@ window.ip21 = {
   // The formula parser is a pure function: worth being able to try one
   // straight from the console (and to check it against
   // tests/fixtures/formula_cases.json) without a row and a fetch behind it.
-  parseFormula, computedPlan, setFunctionCatalog,
+  parseFormula, formulaItems, setFunctionCatalog,
 };

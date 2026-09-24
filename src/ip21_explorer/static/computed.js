@@ -20,8 +20,6 @@ function formulaName(tag) {
   return (tag.description || "").trim() || tag.name;
 }
 
-function setError(tag, text, hard) { tag._error = { text, hard }; }
-
 // A reference names a row by its "TAG;MAP", by its bare tag name, or - for a
 // formula row - by the short description, which is the only handle a formula
 // has that is worth typing.
@@ -36,52 +34,12 @@ function findRow(tab, ref) {
     || null;
 }
 
-// Formulas may feed formulas, so they are computed in dependency order. A
-// cycle marks every row in it, not just the one the walk happened to re-enter:
-// two rows pointing at each other must not sit there looking merely unlucky.
-function orderRows(rows, plan) {
-  const seen = new Map();   // uid -> 1 walking, 2 done
-  const stack = [];
-  const out = [];
-
-  const walk = (tag) => {
-    const mark = seen.get(tag.uid);
-    if (mark === 2) return true;
-    if (mark === 1) {
-      const loop = stack.slice(stack.indexOf(tag)).concat(tag);
-      const chain = loop.map(formulaName).join(" → ");
-      for (const member of loop) {
-        setError(member, `circular formula: ${chain}`, true);
-        seen.set(member.uid, 2);
-        plan.entries.get(member.uid).error = plan.entries.get(member.uid).error || "circular";
-      }
-      return false;
-    }
-    const entry = plan.entries.get(tag.uid);
-    if (!entry || entry.error) return false;
-    seen.set(tag.uid, 1);
-    stack.push(tag);
-    let ok = true;
-    for (const source of entry.sources.values()) {
-      if (source.tag && isComputed(source.tag) && !walk(source.tag)) ok = false;
-    }
-    stack.pop();
-    seen.set(tag.uid, 2);
-    if (ok) out.push(tag);
-    return ok;
-  };
-
-  for (const tag of rows) walk(tag);
-  return out;
-}
-
 // What a reference means to the server: a row's tag with the row's own
 // sampling, another formula row by id, or - not on the plot - the bare tag,
 // read with the owning formula's Type and Period, which is what those two
 // cells mean on a formula row.
 function refSpec(tab, ref, owner) {
   const row = findRow(tab, ref);
-  if (row && owner && row === owner) return { error: "a formula cannot use itself" };
   if (row && isComputed(row)) return { spec: { formula: row.uid }, row };
   if (row) {
     return { spec: { tag: reqName(row), sample: row.sample, interval: row.interval,
@@ -89,67 +47,58 @@ function refSpec(tab, ref, owner) {
   }
   const sample = owner ? owner.sample : "INT";
   const interval = owner ? owner.interval : "auto";
-  return { spec: { tag: ref, sample, interval, step: false } };
+  return { spec: { tag: ref, sample, interval, step: false }, row: null };
 }
 
-// Everything one computation needs: every formula row parsed, where each of
-// its references comes from, and the items to send - in dependency order,
-// without the rows that cannot be computed (a typo, a cycle).
-export function computedPlan(tab) {
-  const plan = { entries: new Map(), order: [], items: [] };
-  const rows = tab.tags.filter(isComputed);
-  if (!rows.length) return plan;
-
-  for (const tag of rows) {
-    const entry = { tag, parsed: null, error: null, sources: new Map(), refs: {} };
-    plan.entries.set(tag.uid, entry);
-    try {
-      entry.parsed = parseFormula(tag.name);
-    } catch (err) {
-      entry.error = err.message;
-      continue;
-    }
-    for (const ref of entry.parsed.refs) {
-      const found = refSpec(tab, ref, tag);
-      if (found.error) { entry.error = found.error; break; }
-      entry.refs[ref] = found.spec;
-      entry.sources.set(ref, { tag: found.row || null });
-    }
+// One formula as the server takes it, its references resolved against this
+// table - the one thing only the browser knows. Everything else wrong with a
+// formula, from a typo to a loop through other rows, the server finds and
+// says in the same words. Also returns the rows it refers to.
+function formulaItem(tab, id, text, name, owner) {
+  const refs = {}, rows = [];
+  let names = [];
+  try { names = parseFormula(text).refs; } catch (err) { /* the server says why */ }
+  for (const ref of names) {
+    const found = refSpec(tab, ref, owner);
+    refs[ref] = found.spec;
+    if (found.row) rows.push(found.row);
   }
-  plan.order = orderRows(rows, plan);
-  plan.items = plan.order.map((tag) => ({
-    id: tag.uid, expr: tag.name, refs: plan.entries.get(tag.uid).refs,
-  }));
-  return plan;
+  return { item: { id, expr: text, name, refs }, rows };
 }
 
-// Writes r.raw[uid] for every formula row the server could compute, and an
-// error on every one that it, or the plan, could not. Everything downstream -
-// chart, hover box, scooters, CSV, the stacked gutter - then sees a formula
-// exactly as it sees a tag.
-export function applyComputed(tab, r, plan, answer) {
-  for (const entry of plan.entries.values()) {
-    if (entry.error && entry.error !== "circular") setError(entry.tag, entry.error, true);
-    if (entry.error) delete r.raw[entry.tag.uid];
-  }
-  for (const tag of plan.order) {
-    const series = answer.series[tag.uid];
-    const error = answer.errors[tag.uid];
-    if (series) r.raw[tag.uid] = series;
-    else delete r.raw[tag.uid];
+// Every formula row on the tab, as the items the server computes.
+export function formulaItems(tab) {
+  return tab.tags.filter(isComputed).map((tag) =>
+    formulaItem(tab, tag.uid, tag.name, formulaName(tag), tag).item);
+}
+
+// Asks the server for the tab's formula rows over [start, end]. Nothing is
+// changed here: applyComputed does that with what comes back.
+export async function fetchComputed(tab, start, end, points, signal) {
+  const items = formulaItems(tab);
+  const answer = items.length
+    ? await apiCompute({ start, end, points, items }, signal)
+    : { series: {}, errors: {} };
+  return { items, answer };
+}
+
+// Writes r.raw[uid] for every formula row the server could compute, and its
+// error on every one it could not. Only the rows that were asked about: one
+// added while the answer was on its way waits for the next. Everything
+// downstream - chart, hover box, scooters, CSV, the value gutter - then sees
+// a formula exactly as it sees a tag.
+export function applyComputed(tab, r, { items, answer }) {
+  for (const { id } of items) {
+    const tag = tab.tags.find((t) => t.uid === id);
+    if (!tag) continue;
+    const series = answer.series[id];
+    const error = answer.errors[id];
+    if (series) r.raw[id] = series;
+    else delete r.raw[id];
     // A formula that comes right again has to lose its red: nothing else
     // clears an error a formula set on itself.
     tag._error = error ? { text: error.text, hard: !!error.hard } : null;
   }
-}
-
-// Asks the server for the tab's formula rows over [start, end]. Returns the
-// plan and the answer, for applyComputed; nothing is changed here.
-export async function fetchComputed(tab, start, end, points, signal) {
-  const plan = computedPlan(tab);
-  if (!plan.items.length) return { plan, answer: { series: {}, errors: {} } };
-  const answer = await apiCompute({ start, end, points, items: plan.items }, signal);
-  return { plan, answer };
 }
 
 // -- preview, for the block editor ------------------------------------------
@@ -163,21 +112,16 @@ export async function previewFormulas(tab, owner, texts, start, end, points, sig
   const out = new Map();
   const items = [];
   texts.forEach((text, i) => {
-    let parsed;
-    try { parsed = parseFormula(text); } catch (err) { out.set(text, { error: err.message }); return; }
-    const refs = {};
-    for (const ref of parsed.refs) {
-      const found = refSpec(tab, ref, owner);
-      if (found.error) { out.set(text, { error: found.error }); return; }
-      refs[ref] = found.spec;
-    }
-    items.push({ id: `p${i}`, expr: text, refs });
+    const { item, rows } = formulaItem(tab, `p${i}`, text, null, owner);
+    // An edit to a row cannot be built on the row's own old value, which is
+    // all the server would have of it.
+    if (owner && rows.includes(owner)) out.set(text, { error: "a formula cannot use itself" });
+    else items.push(item);
   });
   if (!items.length) return out;
   // Formula rows the previewed text refers to are computed alongside it.
-  const plan = computedPlan(tab);
   const answer = await apiCompute(
-    { start, end, points, items: plan.items.concat(items) }, signal);
+    { start, end, points, items: formulaItems(tab).concat(items) }, signal);
   for (const item of items) {
     const error = answer.errors[item.id];
     const series = answer.series[item.id];
